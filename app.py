@@ -12,11 +12,57 @@ st.set_page_config(
 )
 
 # ==========================================
-# 1. AUTENTICAÇÃO SEGURA (SEM SENHA NO CÓDIGO)
+# 1. BANCO DE TURMAS POR INSTRUTOR E TURNO (M / V)
+# ==========================================
+BANCO_TURMAS = {
+    "Guilherme Gomes Bezerra": {
+        "M": ["03872.APC09.0M.54", "3872.APC09.0M.100", "3872.APC09.0M.104", "3872.APC09.0M.105", "3872.APC09.0M.106", "3872.APC09.0M.108", "3872.APC09.0M.115", "3872.APC09.0M.52", "3872.APC09.0M.55", "3872.APC09.0M.57", "3872.APC09.0M.71", "3872.APC09.0M.74", "3872.APC09.0M.76", "3872.APC09.0M.78", "3872.APC09.0M.85", "3872.APC09.0M.89", "3872.APC09.0M.91", "3872.APC09.0M.92", "3872.APC09.0M.94", "3872.APC09.0M.96", "3872.APC09.0M.97", "3872.APC09.0M.98", "3872.APC09.1M.71", "4.0.APC02.2M.91", "4.0.APC02.3M.91", "4.0.APC02.4M.91", "4.0.APC02.5M.91", "4.0.APC09.0M.91", "4.APC02.2M.54", "4.APC02.2M.71", "4.APC02.2M.85", "4.APC02.3M.100", "4.APC02.3M.74", "4.APC02.3M.78", "4.APC02.3M.79", "4.APC02.3M.89", "4.APC02.4M.100", "4.APC02.4M.103", "4.APC02.4M.71", "4.APC02.4M.98", "4.APC02.5M.100", "4.APC09.0M.71", "671.APC09.0M.105", "671.APC09.0M.106", "671.APC09.0M.54", "671.APC09.0M.71", "671.APC09.0M.74", "671.APC09.0M.78", "671.APC09.0M.85", "671.APC09.0M.91", "671.APC09.0M.97"],
+        "V": ["3872.APC09.0V.01", "3872.APC09.0V.100", "3872.APC09.0V.104", "3872.APC09.0V.105", "3872.APC09.0V.106", "3872.APC09.0V.108", "3872.APC09.0V.115", "3872.APC09.0V.52", "3872.APC09.0V.54", "3872.APC09.0V.55", "3872.APC09.0V.57", "3872.APC09.0V.71", "3872.APC09.0V.74", "3872.APC09.0V.76", "3872.APC09.0V.78", "3872.APC09.0V.85", "3872.APC09.0V.89", "3872.APC09.0V.91", "3872.APC09.0V.94", "3872.APC09.0V.96", "3872.APC09.0V.97", "3872.APC09.0V.98", "4.0.APC02.2V.91", "4.0.APC02.3V.91", "4.0.APC02.4V.91", "4.0.APC02.5V.91", "4.0.APC09.0V.91", "4.APC02.2V.100", "4.APC02.2V.71", "4.APC02.2V.85", "4.APC02.2V.94", "4.APC02.3V.100", "4.APC02.3V.103", "4.APC02.3V.78", "4.APC02.4V.100", "4.APC02.4V.103", "4.APC02.4V.71", "4.APC02.4V.74", "4.APC02.4V.96", "4.APC09.0V.78", "671.APC09.0V.106", "671.APC09.0V.54", "671.APC09.0V.71", "671.APC09.0V.74", "671.APC09.0V.78", "671.APC09.0V.85", "671.APC09.0V.91", "671.APC09.0V.96"]
+    },
+    "Cleonice Algarves": {
+        "M": ["3872.APC02.2M.100", "3872.APC02.2M.103", "3872.APC02.2M.108", "3872.APC02.2M.113", "3872.APC02.2M.52", "3872.APC02.2M.54", "3872.APC02.2M.71", "3872.APC02.2M.85", "3872.APC02.2M.89", "3872.APC02.2M.91", "3872.APC02.2M.96", "3872.APC02.2M.98", "3872.APC02.3M.104", "3872.APC02.3M.96", "3872.APC02.4M.100", "3872.APC02.4M.113", "3872.APC02.4M.52", "3872.APC02.4M.54", "3872.APC02.4M.57", "3872.APC02.4M.85", "3872.APC02.4M.94", "3872.APC02.4M.96", "3872.APC02.6M.106"],
+        "V": ["3872.APC02.2V.100", "3872.APC02.2V.104", "3872.APC02.2V.106", "3872.APC02.2V.108", "3872.APC02.2V.71", "3872.APC02.2V.78", "3872.APC02.2V.85", "3872.APC02.2V.89", "3872.APC02.2V.91", "3872.APC02.2V.98", "3872.APC02.3V.104", "3872.APC02.3V.52", "3872.APC02.3V.54", "3872.APC02.3V.96", "3872.APC02.4V.100", "3872.APC02.4V.103", "3872.APC02.4V.113", "3872.APC02.4V.54", "3872.APC02.4V.85", "3872.APC02.4V.96", "3872.APC02.4V.98", "3872.APC02.6V.106"]
+    },
+    "Fernanda Altino": {
+        "M": ["3872.APC00.0M.103", "3872.APC00.0M.107", "3872.APC00.0M.109", "3872.APC00.0M.114", "3872.APC00.0M.53", "3872.APC00.0M.55", "3872.APC00.0M.58", "3872.APC00.0M.72", "3872.APC00.0M.75", "3872.APC00.0M.79", "3872.APC00.0M.86", "3872.APC00.0M.90", "3872.APC00.0M.93", "3872.APC00.0M.95", "3872.APC00.0M.96", "3872.APC00.0M.99"],
+        "V": ["3872.APC00.0V.103", "3872.APC00.0V.107", "3872.APC00.0V.109", "3872.APC00.0V.113", "3872.APC00.0V.53", "3872.APC00.0V.55", "3872.APC00.0V.58", "3872.APC00.0V.72", "3872.APC00.0V.75", "3872.APC00.0V.79", "3872.APC00.0V.86", "3872.APC00.0V.90", "3872.APC00.0V.93", "3872.APC00.0V.96", "3872.APC00.0V.99"]
+    },
+    "Glaucineia Santos": {
+        "M": ["3872.APC00.0M.105", "3872.APC00.0M.106", "3872.APC00.0M.52", "3872.APC00.0M.57", "3872.APC00.0M.73", "3872.APC00.0M.74", "3872.APC00.0M.76", "3872.APC00.0M.78", "3872.APC00.0M.89", "3872.APC00.0M.91", "3872.APC00.0M.97", "3872.APC00.0M.98"],
+        "V": ["3872.APC00.0V.100", "3872.APC00.0V.104", "3872.APC00.0V.105", "3872.APC00.0V.116", "3872.APC00.0V.52", "3872.APC00.0V.54", "3872.APC00.0V.78", "3872.APC00.0V.89", "3872.APC00.0V.98"]
+    },
+    "Kleyton Figueiredo": {
+        "M": ["3872.APC01.2M.101", "3872.APC01.2M.105", "3872.APC01.2M.107", "3872.APC01.2M.108", "3872.APC01.2M.54", "3872.APC01.2M.57", "3872.APC01.2M.71", "3872.APC01.2M.85", "3872.APC01.2M.91", "3872.APC01.2M.94", "3872.APC01.2M.97", "3872.APC01.4M.110", "3872.APC01.4M.113", "3872.APC01.4M.55", "3872.APC01.4M.86", "3872.APC01.5M.101", "3872.APC01.5M.85", "3872.APC01.5M.98", "671.APC01.2M.74", "671.APC01.4M.72"],
+        "V": ["3872.APC01.2V.101", "3872.APC01.2V.108", "3872.APC01.2V.113", "3872.APC01.2V.54", "3872.APC01.2V.71", "3872.APC01.2V.78", "3872.APC01.2V.85", "3872.APC01.2V.89", "3872.APC01.2V.91", "3872.APC01.2V.97", "3872.APC01.4V.108", "3872.APC01.4V.110", "3872.APC01.4V.113", "3872.APC01.4V.55", "3872.APC01.4V.86", "3872.APC01.5V.101", "3872.APC01.5V.106", "3872.APC01.5V.85", "3872.APC01.5V.98"]
+    },
+    "Luciana Medrado": {
+        "M": ["3872.APC01.2M.104", "3872.APC01.2M.52", "3872.APC01.2M.55", "3872.APC01.2M.90", "3872.APC01.4M.104", "3872.APC01.4M.106", "3872.APC01.4M.109", "3872.APC01.4M.115", "3872.APC01.4M.54", "3872.APC01.4M.72", "3872.APC01.4M.76", "3872.APC01.4M.85", "3872.APC01.4M.89", "3872.APC01.4M.92", "3872.APC01.4M.94", "3872.APC01.4M.97", "671.APC01.4M.113"],
+        "V": ["3872.APC01.2V.104", "3872.APC01.2V.106", "3872.APC01.2V.96", "3872.APC01.4V.101", "3872.APC01.4V.103", "3872.APC01.4V.104", "3872.APC01.4V.109", "3872.APC01.4V.85", "3872.APC01.4V.89", "3872.APC01.4V.92", "3872.APC01.4V.96", "671.APC01.4V.101"]
+    },
+    "Marla Barbosa": {
+        "M": ["3872.APC00.0M.100", "3872.APC00.0M.108", "3872.APC00.0M.114", "3872.APC00.0M.115", "3872.APC00.0M.116", "3872.APC00.0M.54", "3872.APC00.0M.85", "3872.APC00.0M.94"],
+        "V": ["3872.APC00.0V.106", "3872.APC00.0V.108", "3872.APC00.0V.57", "3872.APC00.0V.71", "3872.APC00.0V.74", "3872.APC00.0V.76", "3872.APC00.0V.85", "3872.APC00.0V.91", "3872.APC00.0V.94", "3872.APC00.0V.97"]
+    },
+    "Nibson Lima": {
+        "M": ["4.0.APC02.2M.91", "4.0.APC02.3M.91", "4.0.APC02.4M.91", "4.APC02.2M.71", "4.APC02.2M.85", "4.APC02.4M.100", "4.APC02.4M.103", "4.APC02.4M.71", "671.APC.02.4M.100", "671.APC02.2M.54", "671.APC02.2M.71", "671.APC02.2M.91", "671.APC02.2M.96", "671.APC02.2M.98", "671.APC02.3M.100", "671.APC02.3M.78", "671.APC02.4M.104", "671.APC02.4M.106", "671.APC02.4M.108", "671.APC02.4M.54", "671.APC02.4M.71", "671.APC02.4M.74", "671.APC02.4M.76", "671.APC02.4M.85", "671.APC02.4M.92", "671.APC02.4M.97"],
+        "V": ["4.0.APC02.2V.91", "4.0.APC02.3V.91", "4.0.APC02.4V.91", "4.APC02.2V.100", "4.APC02.2V.85", "4.APC02.2V.94", "4.APC02.3V.78", "4.APC02.4V.100", "4.APC02.4V.71", "4.APC02.4V.96", "671.APC.02.4V.100", "671.APC02.2V.100", "671.APC02.2V.104", "671.APC02.2V.106", "671.APC02.2V.71", "671.APC02.2V.78", "671.APC02.2V.91", "671.APC02.2V.96", "671.APC02.2V.98", "671.APC02.3V.106", "671.APC02.3V.71", "671.APC02.3V.78", "671.APC02.3V.96", "671.APC02.4V.104", "671.APC02.4V.54", "671.APC02.4V.71", "671.APC02.4V.78", "671.APC02.4V.85", "671.APC02.4V.97", "671.APC02.4V.98", "671.APC02.5V.71"]
+    }
+}
+
+def extrair_turno(cod_turma):
+    c = str(cod_turma).upper()
+    if "M." in c:
+        return "M - Manhã"
+    if "V." in c:
+        return "V - Tarde"
+    return "Outro"
+
+# ==========================================
+# 2. AUTENTICAÇÃO SEGURA (VIA SECRETS)
 # ==========================================
 def verificar_senha():
     if "SENHA_PAINEL" not in st.secrets:
-        st.error("⚠️ Configure a variável 'SENHA_PAINEL' em Settings > Secrets no Streamlit Cloud.")
+        st.error("⚠️ Configure 'SENHA_PAINEL' em Settings > Secrets no Streamlit Cloud.")
         st.stop()
 
     def validar():
@@ -39,23 +85,37 @@ if not verificar_senha():
     st.stop()
 
 # ==========================================
-# 2. BARRA LATERAL: TURMAS VIA SECRETS + BACKUP
+# 3. BARRA LATERAL: INSTRUTOR + TURNO (M/V)
 # ==========================================
 with st.sidebar:
-    st.header("⚙️ Minhas Turmas")
-    turmas_secret = st.secrets.get("MINHAS_TURMAS", "")
+    st.header("⚙️ Filtro de Instrutor e Turno")
+    opcoes_instrutor = list(BANCO_TURMAS.keys()) + ["Todos os Instrutores"]
+    instrutor_sel = st.selectbox("Instrutor(a):", options=opcoes_instrutor, index=0)
+    turno_sel = st.radio("Turno:", options=["Todos (M + V)", "☀️ Manhã (M)", "🌤️ Tarde (V)"], horizontal=True)
+
+    turmas_base = []
+    if instrutor_sel == "Todos os Instrutores":
+        for d in BANCO_TURMAS.values():
+            if turno_sel in ["Todos (M + V)", "☀️ Manhã (M)"]:
+                turmas_base.extend(d["M"])
+            if turno_sel in ["Todos (M + V)", "🌤️ Tarde (V)"]:
+                turmas_base.extend(d["V"])
+    else:
+        if turno_sel in ["Todos (M + V)", "☀️ Manhã (M)"]:
+            turmas_base.extend(BANCO_TURMAS[instrutor_sel]["M"])
+        if turno_sel in ["Todos (M + V)", "🌤️ Tarde (V)"]:
+            turmas_base.extend(BANCO_TURMAS[instrutor_sel]["V"])
+
     turmas_texto = st.text_area(
-        "Códigos das suas turmas (1 por linha):",
-        value=turmas_secret,
-        height=170,
-        placeholder="Cole os códigos das suas turmas aqui..."
+        f"Turmas Ativas ({len(turmas_base)} selecionadas):",
+        value="\n".join(turmas_base),
+        height=150
     )
     minhas_turmas = [t.strip() for t in turmas_texto.split("\n") if t.strip()]
-    filtrar_minhas = st.checkbox("Filtrar apenas minhas turmas", value=True)
+    filtrar_minhas = st.checkbox("Filtrar apenas as turmas listadas acima", value=True)
 
     st.divider()
     st.subheader("☁️ Sincronização Google Drive")
-
     if any(k in st.session_state for k in ["df_faltas", "df_moodle", "df_rm"]):
         buffer_excel = io.BytesIO()
         with pd.ExcelWriter(buffer_excel, engine="openpyxl") as writer:
@@ -86,9 +146,10 @@ with st.sidebar:
         st.success("Histórico carregado!")
 
 # ==========================================
-# 3. PAINEL PRINCIPAL
+# 4. ABAS PRINCIPAIS
 # ==========================================
 st.title("📊 Central de Acompanhamento Unificado")
+st.caption(f"Filtro Ativo: **{instrutor_sel}** | Turno: **{turno_sel}** ({len(minhas_turmas)} turmas monitoradas)")
 
 tab1, tab2, tab3, tab4 = st.tabs([
     "📅 1. Faltas (SharePoint ➔ RM)",
@@ -99,7 +160,7 @@ tab1, tab2, tab3, tab4 = st.tabs([
 
 # ABA 1: FALTAS
 with tab1:
-    st.subheader("📅 Consolidador de Faltas Diárias (MAT / VES)")
+    st.subheader("📅 Consolidador de Faltas Diárias (Separado por M / V)")
     arquivos_faltas = st.file_uploader(
         "Arraste o pacote .ZIP baixado da pasta MAT/VES do SharePoint ou as planilhas (.xls / .xlsx):",
         type=["xls", "xlsx", "zip"],
@@ -117,6 +178,8 @@ with tab1:
             }
             cols = [c for c in mapa.keys() if c < df_b.shape[1]]
             df = df_b[cols].rename(columns=mapa).dropna(subset=["Nome", "Turma"], how="any")
+            df["Turma"] = df["Turma"].astype(str).str.strip()
+            df["Turno"] = df["Turma"].apply(extrair_turno)
             df["Planilha_Origem"] = nome_arq
             return df
         except Exception:
@@ -139,7 +202,6 @@ with tab1:
 
         if lista:
             df_f_total = pd.concat(lista, ignore_index=True)
-            df_f_total["Turma"] = df_f_total["Turma"].astype(str).str.strip()
             if filtrar_minhas and minhas_turmas:
                 padrao = "|".join([t.lstrip("0") for t in minhas_turmas])
                 df_f_total = df_f_total[df_f_total["Turma"].str.contains(padrao, case=False, na=False)]
@@ -147,40 +209,66 @@ with tab1:
 
     if "df_faltas" in st.session_state and not st.session_state["df_faltas"].empty:
         df_f = st.session_state["df_faltas"]
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Jovens Ausentes", len(df_f))
-        c2.metric("Suas Turmas com Ausências", df_f["Turma"].nunique())
-        c3.metric("Planilhas c/ Ocorrências", df_f["Planilha_Origem"].nunique())
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total de Ausentes", len(df_f))
+        c2.metric("☀️ Manhã (M)", len(df_f[df_f["Turno"] == "M - Manhã"]))
+        c3.metric("🌤️ Tarde (V)", len(df_f[df_f["Turno"] == "V - Tarde"]))
+        c4.metric("Turmas c/ Faltas", df_f["Turma"].nunique())
 
-        turma_f = st.selectbox("Filtrar Turma para lançar no Diário de Classe RM:", ["Todas"] + sorted(df_f["Turma"].unique().tolist()))
+        turma_f = st.selectbox("Selecione a Turma para lançar no Diário de Classe RM:", ["Todas"] + sorted(df_f["Turma"].unique().tolist()))
         df_v = df_f if turma_f == "Todas" else df_f[df_f["Turma"] == turma_f].copy()
         if "Lançado_RM" not in df_v.columns:
             df_v.insert(0, "Lançado_RM", False)
-        st.data_editor(df_v, use_container_width=True, hide_index=True)
+        st.data_editor(
+            df_v[["Lançado_RM", "Turno", "Turma", "ID_Jovem", "Nome", "Email", "Encontro", "Modulo_Unidade", "Data"]],
+            use_container_width=True,
+            hide_index=True
+        )
 
 # ABA 2: MOODLE
 with tab2:
-    st.subheader("📚 Relatório de Pendências e Envios do Moodle")
-    entrada_moodle = st.text_area(
-        "Cole aqui o relatório copiado pelo botão da Extensão do Moodle:",
-        height=120,
-        placeholder="Turma\tAtividade\tStatus\tNome\tEmail_Enviado"
-    )
-    if entrada_moodle:
+    st.subheader("📚 Relatório de Pendências e Envios do Moodle (Com Turno M / V)")
+    col_m1, col_m2 = st.columns(2)
+    with col_m1:
+        entrada_moodle = st.text_area(
+            "Cole aqui o relatório copiado pela Extensão do Moodle:",
+            height=110,
+            placeholder="Instrutor\tTurno\tTurma\tAtividade\tStatus\tNome\tEmail_Enviado"
+        )
+    with col_m2:
+        arq_moodle = st.file_uploader("Ou envie o arquivo relatorio_moodle.tsv baixado:", type=["tsv", "csv", "txt"])
+
+    if arq_moodle:
+        st.session_state["df_moodle"] = pd.read_csv(arq_moodle, sep="\t")
+    elif entrada_moodle:
         try:
             st.session_state["df_moodle"] = pd.read_csv(io.StringIO(entrada_moodle), sep="\t")
         except Exception as e:
-            st.error(f"Formato inválido: {e}")
+            st.error(f"Erro ao ler relatório: {e}")
 
     if "df_moodle" in st.session_state and not st.session_state["df_moodle"].empty:
-        df_m = st.session_state["df_moodle"]
-        cm1, cm2, cm3 = st.columns(3)
-        cm1.metric("Total de Pendências", len(df_m))
-        cm2.metric("Jovens Únicos Sem Acesso", df_m["Nome"].nunique())
-        cm3.metric("Turmas Monitoradas", df_m["Turma"].nunique())
+        df_m = st.session_state["df_moodle"].copy()
+        if "Turno" not in df_m.columns and "Turma" in df_m.columns:
+            df_m["Turno"] = df_m["Turma"].apply(extrair_turno)
 
-        t_moodle = st.selectbox("Filtrar Turma (Moodle):", ["Todas"] + sorted(df_m["Turma"].unique().tolist()))
-        df_m_show = df_m if t_moodle == "Todas" else df_m[df_m["Turma"] == t_moodle]
+        cm1, cm2, cm3, cm4 = st.columns(4)
+        cm1.metric("Total de Pendências", len(df_m))
+        cm2.metric("☀️ Pendências Manhã (M)", len(df_m[df_m["Turno"].astype(str).str.startswith("M")]))
+        cm3.metric("🌤️ Pendências Tarde (V)", len(df_m[df_m["Turno"].astype(str).str.startswith("V")]))
+        cm4.metric("Jovens Únicos Sem Acesso", df_m["Nome"].nunique())
+
+        f_col1, f_col2 = st.columns(2)
+        with f_col1:
+            f_turno_m = st.selectbox("Filtrar Turno (Moodle):", ["Todos", "M - Manhã", "V - Tarde"])
+        with f_col2:
+            f_turma_m = st.selectbox("Filtrar Turma (Moodle):", ["Todas"] + sorted(df_m["Turma"].astype(str).unique().tolist()))
+
+        df_m_show = df_m.copy()
+        if f_turno_m != "Todos":
+            df_m_show = df_m_show[df_m_show["Turno"] == f_turno_m]
+        if f_turma_m != "Todas":
+            df_m_show = df_m_show[df_m_show["Turma"] == f_turma_m]
+
         st.dataframe(df_m_show, use_container_width=True, hide_index=True)
 
 # ABA 3: AVALIAÇÃO RM
@@ -190,7 +278,7 @@ with tab3:
     with col_up1:
         entrada_rm = st.text_area("Cole os dados do Coletor RM:", height=110, placeholder="STATUS_PROVA\tSTATUS_PERIODO...")
     with col_up2:
-        arq_rm = st.file_uploader("Ou envie o arquivo avaliacao_rm.tsv baixado pelo Coletor:", type=["tsv", "csv", "txt"])
+        arq_rm = st.file_uploader("Ou envie o arquivo avaliacao_rm.tsv baixado:", type=["tsv", "csv", "txt"])
 
     if arq_rm:
         st.session_state["df_rm"] = pd.read_csv(arq_rm, sep="\t")
@@ -226,12 +314,12 @@ with tab4:
             st.markdown("#### 📅 Faltas")
             if "df_faltas" in st.session_state:
                 d = st.session_state["df_faltas"]
-                st.dataframe(d[d["Nome"].astype(str).str.contains(busca, case=False, na=False) | d["Turma"].astype(str).str.contains(busca, case=False, na=False)][["Nome", "Turma", "Data"]], hide_index=True)
+                st.dataframe(d[d["Nome"].astype(str).str.contains(busca, case=False, na=False) | d["Turma"].astype(str).str.contains(busca, case=False, na=False)][["Turno", "Nome", "Turma", "Data"]], hide_index=True)
         with cb:
             st.markdown("#### 📚 Moodle")
             if "df_moodle" in st.session_state:
                 d = st.session_state["df_moodle"]
-                st.dataframe(d[d["Nome"].astype(str).str.contains(busca, case=False, na=False) | d["Turma"].astype(str).str.contains(busca, case=False, na=False)][["Nome", "Turma", "Atividade"]], hide_index=True)
+                st.dataframe(d[d["Nome"].astype(str).str.contains(busca, case=False, na=False) | d["Turma"].astype(str).str.contains(busca, case=False, na=False)][["Turno", "Nome", "Turma", "Atividade"]], hide_index=True)
         with cc:
             st.markdown("#### 📝 Avaliação RM")
             if "df_rm" in st.session_state:
