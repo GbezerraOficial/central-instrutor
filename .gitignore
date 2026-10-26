@@ -1,0 +1,11 @@
+# Bloqueio de dados sensíveis (LGPD)
+*.xls
+*.xlsx
+*.csv
+*.zip
+*.json
+
+# Bloqueio de senhas locais e cache do Python
+.streamlit/secrets.toml
+__pycache__/
+.env
