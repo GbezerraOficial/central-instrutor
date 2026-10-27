@@ -2,19 +2,85 @@ import streamlit as st
 import pandas as pd
 import io
 import re
+import sys
+import subprocess
 import zipfile
 import hmac
 from datetime import datetime, date
 
+# Garante que as bibliotecas de leitura de Excel (.xls antigo e .xlsx novo) estejam instaladas
+for pkg in ["xlrd", "openpyxl", "lxml"]:
+    try:
+        __import__(pkg)
+    except ImportError:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", pkg])
+
 st.set_page_config(
-    page_title="Central do Instrutor - Moodle & Faltas",
+    page_title="Central do Instrutor - Painel Unificado",
     page_icon="📊",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# ==========================================
-# 1. BANCO DE TURMAS DOS 8 INSTRUTORES (M e V)
-# ==========================================
+# ==============================================================================
+# ESTILIZAÇÃO VISUAL AVANÇADA (DESTAQUE NOS MENUS E SUBMENUS)
+# ==============================================================================
+st.markdown("""
+<style>
+    /* Destaque nos botões do Menu Principal */
+    div.stButton > button {
+        border-radius: 10px !important;
+        font-weight: 700 !important;
+        font-size: 15px !important;
+        padding: 12px 16px !important;
+        transition: all 0.2s ease-in-out !important;
+        border: 2px solid #334155 !important;
+    }
+    div.stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 16px rgba(56, 189, 248, 0.35) !important;
+        border-color: #38bdf8 !important;
+    }
+    /* Destaque forte nas Abas Internas (Submenus em formato de Pílulas Grandes) */
+    button[data-baseweb="tab"] {
+        background-color: #1e293b !important;
+        color: #cbd5e1 !important;
+        border-radius: 8px 8px 0 0 !important;
+        padding: 12px 22px !important;
+        margin-right: 8px !important;
+        font-weight: 700 !important;
+        font-size: 15px !important;
+        border: 1px solid #334155 !important;
+        border-bottom: none !important;
+    }
+    button[data-baseweb="tab"][aria-selected="true"] {
+        background: linear-gradient(135deg, #0284c7 0%, #2563eb 100%) !important;
+        color: #ffffff !important;
+        border: 2px solid #38bdf8 !important;
+        box-shadow: 0 -4px 12px rgba(56, 189, 248, 0.3) !important;
+    }
+    /* Cartões de Métricas Destacados */
+    div[data-testid="stMetric"] {
+        background-color: #0f172a;
+        border: 1px solid #334155;
+        border-left: 5px solid #38bdf8;
+        padding: 12px 16px;
+        border-radius: 10px;
+    }
+    /* Cabeçalhos de Módulo */
+    .banner-modulo {
+        padding: 16px 22px;
+        border-radius: 12px;
+        margin-bottom: 18px;
+        color: white;
+        font-family: Arial, sans-serif;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# ==============================================================================
+# 1. BANCO DE TURMAS DOS 8 INSTRUTORES (MANHÃ 'M' E TARDE 'V')
+# ==============================================================================
 BANCO_TURMAS = {
     "Guilherme Gomes Bezerra": {
         "M": ["03872.APC09.0M.54", "3872.APC09.0M.100", "3872.APC09.0M.104", "3872.APC09.0M.105", "3872.APC09.0M.106", "3872.APC09.0M.108", "3872.APC09.0M.115", "3872.APC09.0M.52", "3872.APC09.0M.55", "3872.APC09.0M.57", "3872.APC09.0M.71", "3872.APC09.0M.74", "3872.APC09.0M.76", "3872.APC09.0M.78", "3872.APC09.0M.85", "3872.APC09.0M.89", "3872.APC09.0M.91", "3872.APC09.0M.92", "3872.APC09.0M.94", "3872.APC09.0M.96", "3872.APC09.0M.97", "3872.APC09.0M.98", "3872.APC09.1M.71", "4.0.APC02.2M.91", "4.0.APC02.3M.91", "4.0.APC02.4M.91", "4.0.APC02.5M.91", "4.0.APC09.0M.91", "4.APC02.2M.54", "4.APC02.2M.71", "4.APC02.2M.85", "4.APC02.3M.100", "4.APC02.3M.74", "4.APC02.3M.78", "4.APC02.3M.79", "4.APC02.3M.89", "4.APC02.4M.100", "4.APC02.4M.103", "4.APC02.4M.71", "4.APC02.4M.98", "4.APC02.5M.100", "4.APC09.0M.71", "671.APC09.0M.105", "671.APC09.0M.106", "671.APC09.0M.54", "671.APC09.0M.71", "671.APC09.0M.74", "671.APC09.0M.78", "671.APC09.0M.85", "671.APC09.0M.91", "671.APC09.0M.97"],
@@ -50,7 +116,6 @@ BANCO_TURMAS = {
     }
 }
 
-# Mapa reverso rápido: codigo_sem_zero -> Instrutor
 MAPA_TURMA_INSTRUTOR = {}
 for inst, turnos in BANCO_TURMAS.items():
     for cod in turnos["M"] + turnos["V"]:
@@ -58,7 +123,12 @@ for inst, turnos in BANCO_TURMAS.items():
 
 def identificar_instrutor(cod_turma):
     limpo = str(cod_turma).strip().lstrip("0").upper()
-    return MAPA_TURMA_INSTRUTOR.get(limpo, "Outro / Não Mapeado")
+    if limpo in MAPA_TURMA_INSTRUTOR:
+        return MAPA_TURMA_INSTRUTOR[limpo]
+    for k, v in MAPA_TURMA_INSTRUTOR.items():
+        if k in limpo or limpo in k:
+            return v
+    return "Outro Instrutor / Geral"
 
 def identificar_turno(cod_turma, nome_arq=""):
     c = str(cod_turma).upper()
@@ -67,14 +137,14 @@ def identificar_turno(cod_turma, nome_arq=""):
     if "V." in c:
         return "V - Tarde"
     n = str(nome_arq).upper()
-    if "_M." in n or "/MAT/" in n:
+    if "_M." in n or "/MAT/" in n or "\\MAT\\" in n:
         return "M - Manhã"
-    if "_V." in n or "/VES/" in n:
+    if "_V." in n or "/VES/" in n or "\\VES\\" in n:
         return "V - Tarde"
     return "Outro"
 
-def identificar_unidade(texto_mod_arq):
-    t = str(texto_mod_arq).upper()
+def identificar_unidade(texto):
+    t = str(texto).upper()
     if "UB" in t:
         return "UB - Bojador"
     if "UA" in t:
@@ -83,17 +153,183 @@ def identificar_unidade(texto_mod_arq):
         return "UC - Cerrado"
     if "UM" in t:
         return "UM - Missões"
-    return "Outra Unidade"
+    return "Geral / Outra"
 
 def extrair_data_nome_arquivo(nome_arq, data_fallback):
-    m = re.search(r"(\d{2})[-.](\d{2})[-.](\d{4})", str(nome_arq))
+    m = re.search(r"(\d{2})[-._](\d{2})[-._](\d{4})", str(nome_arq))
     if m:
         return f"{m.group(3)}-{m.group(2)}-{m.group(1)}"
     return data_fallback
 
-# ==========================================
-# 2. LOGIN SEGURO
-# ==========================================
+# ==============================================================================
+# 2. LEITOR UNIVERSAL DE PLANILHAS DE FALTAS (.XLS, .XLSX, HTML, XML, CSV, ZIP)
+# ==============================================================================
+def converter_bytes_em_dataframe(bytes_arq, nome_arq):
+    """Tenta todos os motores possíveis para abrir qualquer arquivo .xls ou .xlsx."""
+    if len(bytes_arq) < 100 or nome_arq.startswith("~$"):
+        return None, "vazio"
+
+    # 1. Tenta motores nativos do Excel (xlrd para .xls e openpyxl para .xlsx)
+    for eng in ["xlrd", "openpyxl"]:
+        try:
+            df = pd.read_excel(io.BytesIO(bytes_arq), header=None, engine=eng)
+            if df is not None and not df.empty:
+                return df, eng
+        except Exception:
+            pass
+
+    # 2. Tenta ler caso o .xls seja uma tabela HTML exportada pelo sistema
+    try:
+        dfs_html = pd.read_html(io.BytesIO(bytes_arq))
+        if dfs_html and not dfs_html[0].empty:
+            return dfs_html[0], "html"
+    except Exception:
+        pass
+
+    # 3. Tenta ler caso o .xls seja um arquivo de texto separado por TAB, ';' ou ','
+    for enc in ["utf-8", "latin-1", "cp1252", "utf-16"]:
+        try:
+            texto = bytes_arq.decode(enc)
+            if len(texto.strip()) < 10:
+                return None, "vazio"
+            for sep in ["\t", ";", ","]:
+                if sep in texto:
+                    df = pd.read_csv(io.StringIO(texto), sep=sep, header=None, on_bad_lines="skip")
+                    if df is not None and df.shape[1] >= 4:
+                        return df, f"texto ({enc})"
+        except Exception:
+            pass
+
+    return None, "vazio_ou_810b"
+
+def extrair_alunos_do_dataframe(df_raw, nome_arq, data_padrao_str):
+    """
+    Reconhece cada jovem linha por linha analisando as células preenchidas,
+    funcionando tanto para planilhas de 12 colunas (com colunas vazias intercaladas)
+    quanto para planilhas compactas de 7 ou 8 colunas.
+    """
+    if df_raw is None or df_raw.empty:
+        return pd.DataFrame()
+
+    nome_limpo = nome_arq.replace("\\", "/").split("/")[-1]
+    data_falta = extrair_data_nome_arquivo(nome_limpo, data_padrao_str)
+    modulo_padrao_arq = nome_limpo.split("-")[0].strip() if "-" in nome_limpo else nome_limpo
+
+    registros = []
+
+    for _, row in df_raw.iterrows():
+        # Pega todos os valores não vazios da linha na ordem em que aparecem
+        valores = [str(v).strip() for v in row.values if pd.notna(v) and str(v).strip() != "" and str(v).strip().lower() != "nan"]
+        if len(valores) < 3:
+            continue
+
+        linha_concat = " ".join(valores).upper()
+        # Ignora linhas de cabeçalho caso existam
+        if "CODTURMA" in linha_concat or ("NOME" in linha_concat and "EMAIL" in linha_concat):
+            continue
+
+        # Busca inteligente por padrão dentro das células da linha
+        email = next((v for v in valores if "@" in v), "")
+        turma = next((v for v in valores if re.search(r"(APC|\.\d+[MV]\.)", v, re.I)), "")
+
+        # Se não achou turma pelo padrão APC, mas a linha tem 7+ elementos ou a coluna J (índice 9) existe
+        if not turma:
+            if 9 < len(row) and pd.notna(row.iloc[9]) and str(row.iloc[9]).strip():
+                turma = str(row.iloc[9]).strip()
+            elif len(valores) >= 7:
+                turma = valores[6]
+
+        if not turma and not email:
+            continue
+
+        id_jovem = valores[0] if len(valores) > 0 else ""
+        nome_jovem = valores[1] if len(valores) > 1 else ""
+
+        # Se o arquivo veio com as 8 informações clássicas (ID, Nome, Email, Módulo, Cidade, Encontro, Turma, Data)
+        modulo_sigla = valores[3] if len(valores) > 3 else modulo_padrao_arq
+        cidade_uf = valores[4] if len(valores) > 4 else ""
+        encontro = valores[5] if len(valores) > 5 else ""
+
+        # Ajuste fino caso o e-mail esteja na posição 2
+        if email and email in valores:
+            idx_email = valores.index(email)
+            if idx_email >= 1:
+                nome_jovem = valores[idx_email - 1]
+            if idx_email >= 2:
+                id_jovem = valores[idx_email - 2]
+            restantes = [v for v in valores[idx_email + 1:] if v != turma]
+            if len(restantes) >= 1:
+                modulo_sigla = restantes[0]
+            if len(restantes) >= 2:
+                cidade_uf = restantes[1]
+            if len(restantes) >= 3:
+                encontro = restantes[2]
+
+        registros.append({
+            "Lancado_RM": False,
+            "Data_Falta": data_falta,
+            "Mes_Ano": data_falta[:7],
+            "Instrutor": identificar_instrutor(turma),
+            "Turno": identificar_turno(turma, nome_arq),
+            "Unidade": identificar_unidade(modulo_sigla + " " + nome_limpo),
+            "Turma": turma,
+            "ID_Jovem": id_jovem,
+            "Jovem": re.sub(r"\s+", " ", nome_jovem).strip(),
+            "Email": email,
+            "Encontro": encontro,
+            "Modulo_Sigla": modulo_sigla,
+            "Cidade_UF": cidade_uf,
+            "Arquivo_Origem": nome_limpo
+        })
+
+    return pd.DataFrame(registros)
+
+def processar_arquivos_enviados(lista_arquivos, data_padrao_str):
+    """Varre arquivos soltos (.xls, .xlsx) e pacotes .zip (inclusive subpastas MAT e VES)."""
+    dfs_extraidos = []
+    stats = {"total_arquivos": 0, "com_faltas": 0, "em_branco": 0, "erros": []}
+
+    def processar_item_bytes(b_arq, nome_item):
+        stats["total_arquivos"] += 1
+        df_bruto, status = converter_bytes_em_dataframe(b_arq, nome_item)
+        if df_bruto is not None:
+            df_limpo = extrair_alunos_do_dataframe(df_bruto, nome_item, data_padrao_str)
+            if not df_limpo.empty:
+                dfs_extraidos.append(df_limpo)
+                stats["com_faltas"] += 1
+            else:
+                stats["em_branco"] += 1
+        else:
+            stats["em_branco"] += 1
+
+    def abrir_zip_recursivo(bytes_zip):
+        try:
+            with zipfile.ZipFile(io.BytesIO(bytes_zip), "r") as z:
+                for item in z.namelist():
+                    if item.endswith("/") or "__MACOSX" in item or item.split("/")[-1].startswith("~$"):
+                        continue
+                    item_lower = item.lower()
+                    if item_lower.endswith(".zip"):
+                        abrir_zip_recursivo(z.read(item))
+                    elif item_lower.endswith((".xls", ".xlsx", ".csv", ".tsv")):
+                        processar_item_bytes(z.read(item), item)
+        except Exception as e:
+            stats["erros"].append(str(e))
+
+    for arq in lista_arquivos:
+        nome_lower = arq.name.lower()
+        conteudo = arq.getvalue()
+        if nome_lower.endswith(".zip"):
+            abrir_zip_recursivo(conteudo)
+        else:
+            processar_item_bytes(conteudo, arq.name)
+
+    df_final = pd.concat(dfs_extraidos, ignore_index=True) if dfs_extraidos else pd.DataFrame()
+    return df_final, stats
+
+# ==============================================================================
+# 3. LOGIN SEGURO
+# ==============================================================================
 def autenticar():
     senha_sistema = st.secrets.get("SENHA_PAINEL", "1234")
     if st.session_state.get("logado", False):
@@ -115,38 +351,30 @@ if "base_moodle" not in st.session_state:
     st.session_state["base_moodle"] = pd.DataFrame()
 if "base_faltas" not in st.session_state:
     st.session_state["base_faltas"] = pd.DataFrame()
+if "modulo_ativo" not in st.session_state:
+    st.session_state["modulo_ativo"] = "FALTAS"
 
-# ==========================================
-# 3. BARRA LATERAL: FILTRO GLOBAL + BACKUP UNIFICADO
-# ==========================================
+# ==============================================================================
+# 4. BARRA LATERAL: FILTROS GLOBAIS E BACKUP
+# ==============================================================================
 with st.sidebar:
-    st.header("🎯 Filtros Globais")
-    opcoes_inst = ["Todos"] + list(BANCO_TURMAS.keys()) + ["Outro / Não Mapeado"]
-    filtro_global_inst = st.selectbox("👤 Instrutor(a):", opcoes_inst, index=1) # Padrão: Guilherme
-    filtro_global_turno = st.selectbox("🕒 Turno (M / V):", ["Todos", "M - Manhã", "V - Tarde"])
+    st.markdown("### 🎯 FILTROS DE VISUALIZAÇÃO")
+    opcoes_inst = ["🌟 Todos os Instrutores (Visão Geral)"] + list(BANCO_TURMAS.keys()) + ["Outro Instrutor / Geral"]
+    # Inicia em "Todos os Instrutores" para nunca esconder planilhas de teste!
+    filtro_global_inst = st.selectbox("👤 Filtrar por Instrutor(a):", opcoes_inst, index=0)
+    filtro_global_turno = st.selectbox("🕒 Filtrar por Turno (M / V):", ["Todos (M + V)", "M - Manhã", "V - Tarde"])
 
     st.divider()
-    st.header("🗄️ Base Histórica Unificada")
-    st.caption("Salva e carrega tanto os dados do **Moodle (Etapa 1)** quanto as **Faltas (Etapa 2)** no mesmo arquivo Excel:")
-
-    arq_hist = st.file_uploader("📂 Carregar Histórico Salvo (.xlsx):", type=["xlsx"])
-    if arq_hist and st.button("🔄 Restaurar Histórico", use_container_width=True):
-        try:
-            xls = pd.ExcelFile(arq_hist)
-            if "Historico_Moodle" in xls.sheet_names:
-                df_m = pd.read_excel(xls, "Historico_Moodle")
-                st.session_state["base_moodle"] = pd.concat([st.session_state["base_moodle"], df_m], ignore_index=True).drop_duplicates(
-                    subset=["Data_Coleta", "Turma", "Atividade", "Jovem"], keep="last"
-                )
-            if "Historico_Faltas" in xls.sheet_names:
-                df_f = pd.read_excel(xls, "Historico_Faltas")
-                st.session_state["base_faltas"] = pd.concat([st.session_state["base_faltas"], df_f], ignore_index=True).drop_duplicates(
-                    subset=["Data_Falta", "Turma", "ID_Jovem", "Jovem"], keep="last"
-                )
-            st.success("✅ Histórico restaurado com sucesso!")
-            st.rerun()
-        except Exception as e:
-            st.error(f"Erro ao restaurar arquivo: {e}")
+    st.markdown("### 🗄️ BACKUP HISTÓRICO (.XLSX)")
+    arq_hist = st.file_uploader("📂 Restaurar Histórico Salvo:", type=["xlsx"])
+    if arq_hist and st.button("🔄 Carregar Histórico", use_container_width=True):
+        xls = pd.ExcelFile(arq_hist)
+        if "Historico_Moodle" in xls.sheet_names:
+            st.session_state["base_moodle"] = pd.read_excel(xls, "Historico_Moodle")
+        if "Historico_Faltas" in xls.sheet_names:
+            st.session_state["base_faltas"] = pd.read_excel(xls, "Historico_Faltas")
+        st.success("✅ Histórico restaurado!")
+        st.rerun()
 
     if not st.session_state["base_moodle"].empty or not st.session_state["base_faltas"].empty:
         buf = io.BytesIO()
@@ -155,289 +383,264 @@ with st.sidebar:
                 st.session_state["base_moodle"].to_excel(writer, sheet_name="Historico_Moodle", index=False)
             if not st.session_state["base_faltas"].empty:
                 st.session_state["base_faltas"].to_excel(writer, sheet_name="Historico_Faltas", index=False)
-
         st.download_button(
-            label="💾 Salvar Histórico Completo (.xlsx)",
+            label="💾 Baixar Base Histórica (.xlsx)",
             data=buf.getvalue(),
-            file_name=f"Historico_Central_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
+            file_name=f"Base_Central_{datetime.now().strftime('%d-%m-%Y')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             type="primary",
             use_container_width=True
         )
 
-# ==========================================
-# 4. NAVEGAÇÃO PRINCIPAL: ETAPA 1 E ETAPA 2
-# ==========================================
-st.title("📊 Central de Acompanhamento e Automação")
+# ==============================================================================
+# 5. MENU PRINCIPAL COM ALTO DESTAQUE VISUAL (CARDS DE NAVEGAÇÃO)
+# ==============================================================================
+st.markdown("## 🧭 Menu Principal de Módulos")
+qtd_faltas = len(st.session_state["base_faltas"])
+qtd_moodle = len(st.session_state["base_moodle"])
 
-modulo_principal = st.tabs([
-    "📅 ETAPA 2: Controle de Faltas (SharePoint ➔ RM)",
-    "📚 ETAPA 1: Atividades Não Realizadas (Moodle)"
-])
+nav1, nav2, nav3 = st.columns(3)
+with nav1:
+    if st.button(f"🟧 1. CONTROLE DE FALTAS ({qtd_faltas} registros)", use_container_width=True, type="primary" if st.session_state["modulo_ativo"] == "FALTAS" else "secondary"):
+        st.session_state["modulo_ativo"] = "FALTAS"
+        st.rerun()
+with nav2:
+    if st.button(f"🟦 2. ATIVIDADES MOODLE ({qtd_moodle} registros)", use_container_width=True, type="primary" if st.session_state["modulo_ativo"] == "MOODLE" else "secondary"):
+        st.session_state["modulo_ativo"] = "MOODLE"
+        st.rerun()
+with nav3:
+    if st.button("🟩 3. VISÃO 360º (FALTAS + MOODLE)", use_container_width=True, type="primary" if st.session_state["modulo_ativo"] == "VISAO360" else "secondary"):
+        st.session_state["modulo_ativo"] = "VISAO360"
+        st.rerun()
+
+st.write("")
 
 # ==============================================================================
-# MÓDULO ETAPA 2: CONTROLE DE FALTAS (SHAREPOINT -> RM)
+# MÓDULO 1: CONTROLE DE FALTAS (SHAREPOINT -> RM)
 # ==============================================================================
-with modulo_principal[0]:
-    st.subheader("📅 Etapa 2: Consolidador de Faltas Diárias, Semanais e Mensais")
-    st.markdown(
-        "No SharePoint (`FALTAS > 2026 > MÊS > DIA`), clique em **Baixar** para obter o `.zip` do dia "
-        "(com as pastas `MAT` e `VES` completas) ou selecione várias planilhas `.xls`/`.xlsx`."
-    )
+if st.session_state["modulo_ativo"] == "FALTAS":
+    st.markdown("""
+    <div class="banner-modulo" style="background: linear-gradient(90deg, #ea580c 0%, #c2410c 100%); border-left: 8px solid #fed7aa;">
+        <h2 style="margin:0;color:white;">🟧 MÓDULO: Controle de Faltas (SharePoint ➔ Diário de Classe RM)</h2>
+        <p style="margin:4px 0 0 0;opacity:0.95;font-size:14px;">
+            reconhecimento automático de arquivos <b>.ZIP</b> (pastas MAT e VES inteiras) e planilhas <b>.XLS / .XLSX</b>.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
-    def ler_planilha_falta_segura(bytes_arq, nome_arq, data_padrao_str):
-        # Ignora arquivos vazios de 810 bytes ou temporários do Excel
-        if len(bytes_arq) < 900 or nome_arq.startswith("~$"):
-            return pd.DataFrame()
-
-        df_raw = None
-        ext = nome_arq.lower().split(".")[-1]
-        engines = ["xlrd", "openpyxl"] if ext == "xls" else ["openpyxl", "xlrd"]
-
-        for eng in engines:
-            try:
-                df_raw = pd.read_excel(io.BytesIO(bytes_arq), header=None, engine=eng)
-                break
-            except Exception:
-                continue
-
-        if df_raw is None or df_raw.empty or df_raw.shape[1] < 10:
-            return pd.DataFrame()
-
-        # Mapeamento exato conforme imagem 1.6.png:
-        # Col A (0): ID_Jovem | Col B (1): Jovem | Col C (2): Email | Col D (3): Modulo_Sigla
-        # Col F (5): Cidade_UF | Col H (7): Encontro | Col J (9): Turma | Col L (11): Data_Cadastro
-        mapa = {
-            0: "ID_Jovem",
-            1: "Jovem",
-            2: "Email",
-            3: "Modulo_Sigla",
-            5: "Cidade_UF",
-            7: "Encontro",
-            9: "Turma",
-            11: "Data_Col_L"
-        }
-        cols_presentes = [c for c in mapa.keys() if c < df_raw.shape[1]]
-        df = df_raw[cols_presentes].rename(columns=mapa).copy()
-
-        # Remove linhas em branco ou cabeçalhos eventuais (exige que Turma tenha '.' ou números e Jovem exista)
-        df = df.dropna(subset=["Jovem", "Turma"], how="any")
-        df["Turma"] = df["Turma"].astype(str).str.strip()
-        df["Jovem"] = df["Jovem"].astype(str).str.replace(r"\s+", " ", regex=True).str.strip()
-        df = df[df["Turma"].str.contains(r"\.|APC|\d", case=False, na=False)]
-        df = df[~df["Turma"].str.upper().isin(["TURMA", "CODTURMA", "NAN"])]
-
-        if df.empty:
-            return pd.DataFrame()
-
-        nome_limpo = nome_arq.split("/")[-1]
-        data_falta = extrair_data_nome_arquivo(nome_limpo, data_padrao_str)
-
-        df["Data_Falta"] = data_falta
-        df["Mes_Ano"] = data_falta[:7]
-        df["Turno"] = df["Turma"].apply(lambda t: identificar_turno(t, nome_arq))
-        df["Instrutor"] = df["Turma"].apply(identificar_instrutor)
-        df["Unidade"] = df["Modulo_Sigla"].fillna(nome_limpo).apply(identificar_unidade)
-        df["Arquivo_Origem"] = nome_limpo
-        df["Lancado_RM"] = False
-
-        colunas_ordem = [
-            "Lancado_RM", "Data_Falta", "Mes_Ano", "Instrutor", "Turno",
-            "Unidade", "Turma", "ID_Jovem", "Jovem", "Email",
-            "Encontro", "Modulo_Sigla", "Cidade_UF", "Arquivo_Origem"
-        ]
-        return df[[c for c in colunas_ordem if c in df.columns]]
-
-    with st.expander("📥 Importar Pacote .ZIP de Faltas (MAT / VES) ou Planilhas (.xls / .xlsx)", expanded=st.session_state["base_faltas"].empty):
-        c_up1, c_up2 = st.columns([1, 2])
-        with c_up1:
-            data_ref_falta = st.date_input(
-                "📅 Data de referência (caso o arquivo não tenha data no nome):",
-                value=date.today(),
-                format="DD/MM/YYYY",
-                key="dt_falta"
-            )
-        with c_up2:
-            arqs_faltas = st.file_uploader(
-                "Arraste o(s) arquivo(s) .ZIP do SharePoint ou as planilhas (.xls, .xlsx):",
-                type=["zip", "xls", "xlsx"],
-                accept_multiple_files=True,
-                key="up_faltas"
-            )
-
-        bf1, bf2 = st.columns([2, 1])
-        with bf1:
-            if st.button("⚡ Processar Planilhas de Faltas", type="primary", use_container_width=True):
-                if not arqs_faltas:
-                    st.warning("Selecione pelo menos um arquivo .zip, .xls ou .xlsx.")
-                else:
-                    lote_faltas = []
-                    total_arquivos_lidos = 0
-                    data_padrao = data_ref_falta.strftime("%Y-%m-%d")
-
-                    for arq in arqs_faltas:
-                        if arq.name.lower().endswith(".zip"):
-                            with zipfile.ZipFile(arq, "r") as z:
-                                for item in z.namelist():
-                                    if item.lower().endswith((".xls", ".xlsx")) and not item.startswith("__MACOSX"):
-                                        total_arquivos_lidos += 1
-                                        df_temp = ler_planilha_falta_segura(z.read(item), item, data_padrao)
-                                        if not df_temp.empty:
-                                            lote_faltas.append(df_temp)
-                        else:
-                            total_arquivos_lidos += 1
-                            df_temp = ler_planilha_falta_segura(arq.read(), arq.name, data_padrao)
-                            if not df_temp.empty:
-                                lote_faltas.append(df_temp)
-
-                    if lote_faltas:
-                        df_novas = pd.concat(lote_faltas, ignore_index=True)
-                        df_comb = pd.concat([st.session_state["base_faltas"], df_novas], ignore_index=True)
-                        df_comb = df_comb.drop_duplicates(subset=["Data_Falta", "Turma", "ID_Jovem", "Jovem"], keep="first")
-                        st.session_state["base_faltas"] = df_comb
-                        st.success(f"✅ {total_arquivos_lidos} planilhas varridas! {len(df_novas)} ausências válidas extraídas.")
-                        st.rerun()
-                    else:
-                        st.warning("Nenhuma ausência encontrada nas planilhas enviadas (arquivos vazios).")
-        with bf2:
-            if st.button("🗑️ Limpar Base de Faltas", use_container_width=True):
+    with st.expander("📥 IMPORTAR PLANILHAS OU PACOTE .ZIP DE FALTAS (Processamento Automático ao Soltar)", expanded=True):
+        c_dt, c_up = st.columns([1, 2.5])
+        with c_dt:
+            data_ref = st.date_input("📅 Data padrão (se não houver no nome):", value=date.today(), format="DD/MM/YYYY")
+            if st.button("🗑️ Limpar Todas as Faltas", use_container_width=True):
                 st.session_state["base_faltas"] = pd.DataFrame()
+                st.session_state["ultimos_arquivos_lidos"] = []
                 st.rerun()
 
-    df_f = st.session_state["base_faltas"].copy()
+        with c_up:
+            arquivos_up = st.file_uploader(
+                "Solte aqui o arquivo .ZIP (da pasta do dia ou MAT/VES) OU várias planilhas (.xls / .xlsx):",
+                type=["zip", "xls", "xlsx", "csv", "tsv"],
+                accept_multiple_files=True,
+                key="uploader_faltas_auto"
+            )
 
-    if not df_f.empty:
-        # Aplicando os filtros globais da barra lateral
-        if filtro_global_inst != "Todos":
+        # PROCESSAMENTO AUTOMÁTICO ASSIM QUE O ARQUIVO É SOLTO
+        if arquivos_up:
+            assinatura_atual = [f"{a.name}_{a.size}" for a in arquivos_up]
+            if st.session_state.get("ultimos_arquivos_lidos") != assinatura_atual:
+                with st.spinner("Lendo planilhas e extraindo jovens ausentes..."):
+                    df_novos, stats = processar_arquivos_enviados(arquivos_up, data_ref.strftime("%Y-%m-%d"))
+                    st.session_state["ultimos_arquivos_lidos"] = assinatura_atual
+                    st.session_state["ultimo_diagnostico"] = stats
+
+                    if not df_novos.empty:
+                        df_acum = pd.concat([st.session_state["base_faltas"], df_novos], ignore_index=True)
+                        df_acum = df_acum.drop_duplicates(subset=["Data_Falta", "Turma", "ID_Jovem", "Jovem"], keep="first")
+                        st.session_state["base_faltas"] = df_acum
+
+        if "ultimo_diagnostico" in st.session_state:
+            st_diag = st.session_state["ultimo_diagnostico"]
+            st.info(
+                f"🔍 **Diagnóstico da Leitura:** Foram analisados **{st_diag['total_arquivos']}** arquivos "
+                f"| ✅ **{st_diag['com_faltas']}** planilhas continham alunos ausentes "
+                f"| ⚪ **{st_diag['em_branco']}** planilhas estavam sem alunos (em branco / 810 bytes)."
+            )
+
+    df_f_total = st.session_state["base_faltas"].copy()
+
+    if not df_f_total.empty:
+        df_f = df_f_total.copy()
+        if filtro_global_inst != "🌟 Todos os Instrutores (Visão Geral)":
             df_f = df_f[df_f["Instrutor"] == filtro_global_inst]
-        if filtro_global_turno != "Todos":
+        if filtro_global_turno != "Todos (M + V)":
             df_f = df_f[df_f["Turno"] == filtro_global_turno]
 
-        st.divider()
-        ff1, ff2, ff3, ff4 = st.columns(4)
-        with ff1:
-            datas_f = ["Todas"] + sorted(df_f["Data_Falta"].astype(str).unique().tolist(), reverse=True)
-            sel_data_f = st.selectbox("📅 Filtrar Dia da Falta:", datas_f)
-        with ff2:
-            unidades_f = ["Todas"] + sorted(df_f["Unidade"].astype(str).unique().tolist())
-            sel_unid_f = st.selectbox("🏢 Filtrar Unidade:", unidades_f)
-        with ff3:
-            df_f_temp = df_f.copy()
-            if sel_data_f != "Todas":
-                df_f_temp = df_f_temp[df_f_temp["Data_Falta"] == sel_data_f]
-            if sel_unid_f != "Todas":
-                df_f_temp = df_f_temp[df_f_temp["Unidade"] == sel_unid_f]
-            turmas_f = ["Todas"] + sorted(df_f_temp["Turma"].astype(str).unique().tolist())
-            sel_turma_f = st.selectbox("🏫 Selecionar Turma (Para Lançar no RM):", turmas_f)
-        with ff4:
-            busca_jovem_f = st.text_input("🔍 Buscar Jovem ou ID:")
-
-        df_f_view = df_f_temp.copy()
-        if sel_turma_f != "Todas":
-            df_f_view = df_f_view[df_f_view["Turma"] == sel_turma_f]
-        if busca_jovem_f:
-            df_f_view = df_f_view[
-                df_f_view["Jovem"].astype(str).str.contains(busca_jovem_f, case=False, na=False) |
-                df_f_view["ID_Jovem"].astype(str).str.contains(busca_jovem_f, case=False, na=False)
-            ]
-
-        # Indicadores rápidos
-        kf1, kf2, kf3, kf4 = st.columns(4)
-        kf1.metric("Total de Faltas (Filtro)", len(df_f_view))
-        kf2.metric("Jovens Ausentes Únicos", df_f_view["Jovem"].nunique())
-        kf3.metric("☀️ Manhã (M)", len(df_f_view[df_f_view["Turno"] == "M - Manhã"]))
-        kf4.metric("🌤️ Tarde (V)", len(df_f_view[df_f_view["Turno"] == "V - Tarde"]))
-
-        sub_f1, sub_f2, sub_f3 = st.tabs([
-            "📝 1. Lançamento no Diário de Classe (RM)",
-            "🚨 2. Reincidência Semanal / Mensal (Quem mais falta)",
-            "📊 3. Resumo por Unidade e Turno"
-        ])
-
-        with sub_f1:
-            st.caption("💡 Selecione a Turma no filtro acima e marque a caixinha **Lancado_RM** à medida que registrar a falta no portal RM:")
-            df_editado = st.data_editor(
-                df_f_view,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "Lancado_RM": st.column_config.CheckboxColumn("✅ Lançado no RM?", default=False)
-                }
+        # Alerta amigável caso o filtro do instrutor oculte os dados da planilha enviada
+        if df_f.empty and not df_f_total.empty:
+            st.warning(
+                f"⚠️ As planilhas foram lidas com sucesso (**{len(df_f_total)} faltas no total**), "
+                f"mas nenhuma delas pertence ao filtro **{filtro_global_inst} / {filtro_global_turno}**. "
+                f"Mude o filtro na barra lateral esquerda para **'🌟 Todos os Instrutores'** para vê-las!"
             )
-            # Atualiza o status de Lançado_RM na sessão
-            if not df_editado.empty:
-                st.session_state["base_faltas"].loc[df_editado.index, "Lancado_RM"] = df_editado["Lancado_RM"]
+        else:
+            # SUBMENUS DESTACADOS DA ETAPA 2
+            sub_f1, sub_f2, sub_f3 = st.tabs([
+                "📝 1. LANÇAR FALTAS NO RM (POR TURMA)",
+                "🚨 2. RANKING SEMANAL / MENSAL DE FALTAS",
+                "📊 3. GRÁFICOS POR UNIDADE E TURNO (M / V)"
+            ])
 
-        with sub_f2:
-            st.subheader("🚨 Ranking de Jovens com Mais Faltas Acumuladas")
-            ranking_faltas = (
-                df_f_temp.groupby(["ID_Jovem", "Jovem", "Email", "Turma", "Turno", "Instrutor", "Unidade"])
-                .agg(
-                    Total_Faltas=("Data_Falta", "count"),
-                    Datas_Ausente=("Data_Falta", lambda x: ", ".join(sorted(set(x)))),
-                    Encontros_Perdidos=("Encontro", lambda x: " | ".join(sorted(set(str(v) for v in x))))
+            with sub_f1:
+                f_c1, f_c2, f_c3, f_c4 = st.columns(4)
+                with f_c1:
+                    sel_dt = st.selectbox("📅 Filtrar Data:", ["Todas"] + sorted(df_f["Data_Falta"].unique().tolist(), reverse=True))
+                with f_c2:
+                    sel_unid = st.selectbox("🏢 Filtrar Unidade:", ["Todas"] + sorted(df_f["Unidade"].unique().tolist()))
+                with f_c3:
+                    df_sub = df_f.copy()
+                    if sel_dt != "Todas":
+                        df_sub = df_sub[df_sub["Data_Falta"] == sel_dt]
+                    if sel_unid != "Todas":
+                        df_sub = df_sub[df_sub["Unidade"] == sel_unid]
+                    sel_turma = st.selectbox("🏫 Filtrar Turma:", ["Todas"] + sorted(df_sub["Turma"].unique().tolist()))
+                with f_c4:
+                    busca_f = st.text_input("🔍 Buscar Nome ou ID do Jovem:")
+
+                if sel_turma != "Todas":
+                    df_sub = df_sub[df_sub["Turma"] == sel_turma]
+                if busca_f:
+                    df_sub = df_sub[
+                        df_sub["Jovem"].str.contains(busca_f, case=False, na=False) |
+                        df_sub["ID_Jovem"].str.contains(busca_f, case=False, na=False)
+                    ]
+
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Ausências Filtradas", len(df_sub))
+                m2.metric("☀️ Manhã (M)", len(df_sub[df_sub["Turno"] == "M - Manhã"]))
+                m3.metric("🌤️ Tarde (V)", len(df_sub[df_sub["Turno"] == "V - Tarde"]))
+                m4.metric("Turmas Afetadas", df_sub["Turma"].nunique())
+
+                st.data_editor(
+                    df_sub,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Lancado_RM": st.column_config.CheckboxColumn("✅ Lançado no RM?", default=False)
+                    }
                 )
-                .reset_index()
-                .sort_values(by="Total_Faltas", ascending=False)
-            )
-            st.dataframe(ranking_faltas, use_container_width=True, hide_index=True)
 
-        with sub_f3:
-            g1, g2 = st.columns(2)
-            with g1:
-                st.markdown("**🏢 Faltas por Unidade (Bojador, Áurea, Cerrado, Missões):**")
-                st.bar_chart(df_f_temp.groupby("Unidade")["Jovem"].count())
-            with g2:
-                st.markdown("**📅 Evolução de Faltas por Dia:**")
-                st.bar_chart(df_f_temp.groupby("Data_Falta")["Jovem"].count())
+            with sub_f2:
+                st.markdown("#### 🚨 Jovens com Maior Acúmulo de Faltas (Comparativo Semanal e Mensal)")
+                rank_f = (
+                    df_f.groupby(["ID_Jovem", "Jovem", "Email", "Turma", "Turno", "Instrutor", "Unidade"])
+                    .agg(
+                        Total_Faltas=("Data_Falta", "count"),
+                        Datas_Ausente=("Data_Falta", lambda x: ", ".join(sorted(set(x)))),
+                        Encontros=("Encontro", lambda x: " | ".join(sorted(set(str(v) for v in x if v))))
+                    )
+                    .reset_index()
+                    .sort_values(by="Total_Faltas", ascending=False)
+                )
+                st.dataframe(rank_f, use_container_width=True, hide_index=True)
+
+            with sub_f3:
+                g1, g2 = st.columns(2)
+                with g1:
+                    st.markdown("**🏢 Faltas por Unidade (Bojador, Áurea, Cerrado, Missões):**")
+                    st.bar_chart(df_f.groupby("Unidade")["Jovem"].count())
+                with g2:
+                    st.markdown("**🕒 Faltas por Turno (M vs V):**")
+                    st.bar_chart(df_f.groupby("Turno")["Jovem"].count())
 
 # ==============================================================================
-# MÓDULO ETAPA 1: ATIVIDADES MOODLE (DEMÀ DIGITAL)
+# MÓDULO 2: ATIVIDADES MOODLE (DEMÀ DIGITAL)
 # ==============================================================================
-with modulo_principal[1]:
-    st.subheader("📚 Etapa 1: Acompanhamento de Atividades e Evolução (Moodle)")
+elif st.session_state["modulo_ativo"] == "MOODLE":
+    st.markdown("""
+    <div class="banner-modulo" style="background: linear-gradient(90deg, #0284c7 0%, #1d4ed8 100%); border-left: 8px solid #bae6fd;">
+        <h2 style="margin:0;color:white;">🟦 MÓDULO: Acompanhamento de Atividades (Moodle Demà Digital)</h2>
+        <p style="margin:4px 0 0 0;opacity:0.95;font-size:14px;">
+            Consolidação das 7 atividades, controle de e-mails disparados e comparativo semanal/mensal.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
-    with st.expander("📥 Registrar Nova Coleta do Moodle", expanded=st.session_state["base_moodle"].empty):
+    with st.expander("📥 ADICIONAR COLETA EXTRAÍDA PELA EXTENSÃO DO MOODLE", expanded=st.session_state["base_moodle"].empty):
         cm1, cm2 = st.columns(2)
         with cm1:
-            dt_moodle = st.date_input("📅 Data da Coleta Moodle:", value=date.today(), format="DD/MM/YYYY", key="dt_moodle")
+            dt_moodle = st.date_input("📅 Data da Coleta:", value=date.today(), format="DD/MM/YYYY")
         with cm2:
-            enc_moodle = st.text_input("📘 Nome do Módulo / Encontro:", value="Encontro da Semana")
+            enc_moodle = st.text_input("📘 Módulo / Encontro:", value="Encontro da Semana")
 
-        ci1, ci2 = st.columns(2)
-        with ci1:
-            txt_moodle = st.text_area("Cole (Ctrl+V) o relatório da Extensão do Moodle:", height=110)
-        with ci2:
-            arqs_moodle = st.file_uploader("Ou envie arquivos (.tsv / .csv):", type=["tsv", "csv", "txt"], accept_multiple_files=True)
-
-        if st.button("➕ Adicionar Coleta do Moodle", type="primary"):
-            dfs_m = []
-            if txt_moodle.strip():
-                dfs_m.append(pd.read_csv(io.StringIO(txt_moodle.strip()), sep="\t"))
-            if arqs_moodle:
-                for a in arqs_moodle:
-                    dfs_m.append(pd.read_csv(a, sep="\t"))
-            if dfs_m:
-                df_lote_m = pd.concat(dfs_m, ignore_index=True)
+        txt_m = st.text_area("Cole (Ctrl+V) o relatório copiado pela Extensão do Moodle:", height=110)
+        if st.button("➕ Salvar Coleta no Painel", type="primary"):
+            if txt_m.strip():
+                df_lote = pd.read_csv(io.StringIO(txt_m.strip()), sep="\t")
                 dt_str = dt_moodle.strftime("%Y-%m-%d")
-                if "Data_Coleta" not in df_lote_m.columns:
-                    df_lote_m.insert(0, "Data_Coleta", dt_str)
-                if "Mes_Ano" not in df_lote_m.columns:
-                    df_lote_m.insert(1, "Mes_Ano", dt_str[:7])
-                if "Encontro" not in df_lote_m.columns:
-                    df_lote_m.insert(2, "Encontro", enc_moodle)
-
-                st.session_state["base_moodle"] = pd.concat([st.session_state["base_moodle"], df_lote_m], ignore_index=True).drop_duplicates(
+                if "Data_Coleta" not in df_lote.columns:
+                    df_lote.insert(0, "Data_Coleta", dt_str)
+                if "Mes_Ano" not in df_lote.columns:
+                    df_lote.insert(1, "Mes_Ano", dt_str[:7])
+                if "Encontro" not in df_lote.columns:
+                    df_lote.insert(2, "Encontro", enc_moodle)
+                st.session_state["base_moodle"] = pd.concat([st.session_state["base_moodle"], df_lote], ignore_index=True).drop_duplicates(
                     subset=["Data_Coleta", "Turma", "Atividade", "Jovem"], keep="last"
                 )
-                st.success("✅ Coleta do Moodle adicionada!")
+                st.success("✅ Coleta registrada!")
                 st.rerun()
 
     df_m = st.session_state["base_moodle"].copy()
     if not df_m.empty:
-        if filtro_global_inst != "Todos":
+        if filtro_global_inst != "🌟 Todos os Instrutores (Visão Geral)":
             df_m = df_m[df_m["Instrutor"] == filtro_global_inst]
-        if filtro_global_turno != "Todos":
+        if filtro_global_turno != "Todos (M + V)":
             df_m = df_m[df_m["Turno"] == filtro_global_turno]
 
-        st.dataframe(df_m, use_container_width=True, hide_index=True)
+        sub_m1, sub_m2 = st.tabs([
+            "📋 1. LISTA DE PENDÊNCIAS MOODLE",
+            "📈 2. COMPARATIVO SEMANAL (QUEM REGULARIZOU)"
+        ])
+        with sub_m1:
+            st.dataframe(df_m, use_container_width=True, hide_index=True)
+        with sub_m2:
+            datas_m = sorted(df_m["Data_Coleta"].astype(str).unique().tolist())
+            if len(datas_m) < 2:
+                st.info("Registre pelo menos 2 datas diferentes de coleta para comparar quem regularizou na semana.")
+            else:
+                d_ant = st.selectbox("Coleta Inicial:", datas_m, index=0)
+                d_nov = st.selectbox("Coleta Recente:", datas_m, index=len(datas_m)-1)
+                df_a = df_m[df_m["Data_Coleta"] == d_ant]
+                df_n = df_m[df_m["Data_Coleta"] == d_nov]
+                comp = pd.merge(df_a, df_n, on=["Turma", "Atividade", "Jovem"], how="outer", indicator=True)
+                st.metric("✅ Regularizaram (Fizeram a atividade!)", len(comp[comp["_merge"] == "left_only"]))
+                st.dataframe(comp[comp["_merge"] == "left_only"][["Turma", "Atividade", "Jovem"]], use_container_width=True, hide_index=True)
+
+# ==============================================================================
+# MÓDULO 3: VISÃO 360º (CRUZAMENTO FALTAS + MOODLE)
+# ==============================================================================
+elif st.session_state["modulo_ativo"] == "VISAO360":
+    st.markdown("""
+    <div class="banner-modulo" style="background: linear-gradient(90deg, #059669 0%, #047857 100%); border-left: 8px solid #a7f3d0;">
+        <h2 style="margin:0;color:white;">🟩 MÓDULO: Visão 360º do Jovem (Cruzamento Faltas + Atividades)</h2>
+        <p style="margin:4px 0 0 0;opacity:0.95;font-size:14px;">
+            Pesquise qualquer jovem ou turma para ver simultaneamente suas faltas no encontro e atividades pendentes no Moodle.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    termo_360 = st.text_input("🔍 Digite o Nome do Jovem ou o Código da Turma:")
+    if termo_360:
+        c360_1, c360_2 = st.columns(2)
+        with c360_1:
+            st.markdown("### 🟧 Faltas Registradas")
+            df_f = st.session_state["base_faltas"]
+            if not df_f.empty:
+                res_f = df_f[df_f["Jovem"].str.contains(termo_360, case=False, na=False) | df_f["Turma"].str.contains(termo_360, case=False, na=False)]
+                st.dataframe(res_f[["Data_Falta", "Turno", "Turma", "Jovem", "Encontro"]], use_container_width=True, hide_index=True)
+        with c360_2:
+            st.markdown("### 🟦 Atividades Pendentes (Moodle)")
+            df_m = st.session_state["base_moodle"]
+            if not df_m.empty:
+                res_m = df_m[df_m["Jovem"].str.contains(termo_360, case=False, na=False) | df_m["Turma"].str.contains(termo_360, case=False, na=False)]
+                st.dataframe(res_m[["Data_Coleta", "Turno", "Turma", "Jovem", "Atividade"]], use_container_width=True, hide_index=True)
