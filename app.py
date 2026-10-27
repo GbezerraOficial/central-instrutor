@@ -1,10 +1,12 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import io
 import re
 import csv
 import zipfile
 import hmac
+from concurrent.futures import ThreadPoolExecutor
 from html.parser import HTMLParser
 import xml.etree.ElementTree as ET
 from datetime import datetime, date
@@ -17,7 +19,7 @@ st.set_page_config(
 )
 
 # ==============================================================================
-# ESTILIZAÇÃO VISUAL AVANÇADA (MENUS E SUBMENUS DESTACADOS)
+# ESTILIZAÇÃO VISUAL AVANÇADA
 # ==============================================================================
 st.markdown("""
 <style>
@@ -26,7 +28,7 @@ st.markdown("""
         font-weight: 700 !important;
         font-size: 15px !important;
         padding: 12px 16px !important;
-        transition: all 0.2s ease-in-out !important;
+        transition: all 0.15s ease-in-out !important;
         border: 2px solid #334155 !important;
     }
     div.stButton > button:hover {
@@ -69,12 +71,18 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 1. BANCO DE TURMAS DOS 8 INSTRUTORES E FUNÇÕES DE FIDELIDADE DE DADOS
+# 1. ESTRUTURAS DE DADOS PRÉ-COMPILADAS (VELOCIDADE O(1))
 # ==============================================================================
 UFS_BRASIL = {
     "AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS", "MT",
     "PA", "PB", "PE", "PI", "PR", "RJ", "RN", "RO", "RR", "RS", "SC", "SE", "SP", "TO"
 }
+
+REGEX_DATA_ARQ = re.compile(r"(\d{2})[-._](\d{2})[-._](\d{4})")
+REGEX_DISC_ARQ = re.compile(r"\s*-\s*\d{2}[-._]\d{2}[-._]\d{4}")
+REGEX_EXT_ARQ = re.compile(r"\.(xlsx?|csv|tsv)$", re.I)
+REGEX_TURMA_APC = re.compile(r"(APC\.?\d+|\d+\.[A-Z0-9]+\.\d+[MV])", re.I)
+REGEX_MATRICULA = re.compile(r"^\d{3,12}$")
 
 BANCO_TURMAS = {
     "Guilherme Gomes Bezerra": {
@@ -111,7 +119,7 @@ BANCO_TURMAS = {
     }
 }
 
-MAPA_TURMA_INSTRUTORES = {}
+MAPA_TURMA_STR = {}
 SET_TURMAS_POR_INSTRUTOR = {}
 
 for inst, turnos in BANCO_TURMAS.items():
@@ -119,50 +127,16 @@ for inst, turnos in BANCO_TURMAS.items():
     for cod in turnos["M"] + turnos["V"]:
         cod_norm = cod.strip().lstrip("0").upper()
         SET_TURMAS_POR_INSTRUTOR[inst].add(cod_norm)
-        if cod_norm not in MAPA_TURMA_INSTRUTORES:
-            MAPA_TURMA_INSTRUTORES[cod_norm] = []
-        if inst not in MAPA_TURMA_INSTRUTORES[cod_norm]:
-            MAPA_TURMA_INSTRUTORES[cod_norm].append(inst)
-
-def identificar_instrutor(cod_turma):
-    limpo = str(cod_turma).strip().lstrip("0").upper()
-    if limpo in MAPA_TURMA_INSTRUTORES:
-        return " / ".join(MAPA_TURMA_INSTRUTORES[limpo])
-    for k, lista_inst in MAPA_TURMA_INSTRUTORES.items():
-        if k in limpo or limpo in k:
-            return " / ".join(lista_inst)
-    return "Não Mapeado / Outros"
-
-def filtrar_df_por_instrutor(df_alvo, nome_instrutor):
-    if nome_instrutor == "🌟 Todos os Instrutores":
-        return df_alvo
-    if nome_instrutor == "Não Mapeado / Outros":
-        return df_alvo[df_alvo["Instrutor"] == "Não Mapeado / Outros"]
-    codigos_inst = SET_TURMAS_POR_INSTRUTOR.get(nome_instrutor, set())
-    turmas_norm = df_alvo["Turma"].astype(str).str.strip().str.lstrip("0").str.upper()
-    mask_turma = turmas_norm.isin(codigos_inst)
-    mask_nome = df_alvo["Instrutor"].astype(str).str.contains(nome_instrutor, case=False, na=False)
-    return df_alvo[mask_turma | mask_nome]
-
-def identificar_turno(cod_turma, nome_arq=""):
-    c = str(cod_turma).upper()
-    if "M." in c:
-        return "M - Manhã"
-    if "V." in c:
-        return "V - Tarde"
-    n = str(nome_arq).upper()
-    if "_M." in n or "/MAT/" in n or "\\MAT\\" in n or "MAT" in n:
-        return "M - Manhã"
-    if "_V." in n or "/VES/" in n or "\\VES\\" in n or "VES" in n:
-        return "V - Tarde"
-    return "Outro"
+        if cod_norm not in MAPA_TURMA_STR:
+            MAPA_TURMA_STR[cod_norm] = inst
+        elif inst not in MAPA_TURMA_STR[cod_norm]:
+            MAPA_TURMA_STR[cod_norm] += f" / {inst}"
 
 def separar_cidade_estado(texto_cid_uf):
-    """Divide 'CAMPO GRANDE / MS' validando a sigla oficial das 27 UFs."""
     txt = str(texto_cid_uf).strip()
     if not txt or txt.lower() in ("nan", "none"):
         return "", ""
-    for sep in ["/", " - ", "-"]:
+    for sep in ("/", " - ", "-"):
         if sep in txt:
             partes = txt.rsplit(sep, 1)
             uf_cand = partes[1].strip().upper()
@@ -172,91 +146,117 @@ def separar_cidade_estado(texto_cid_uf):
 
 def eh_cidade_uf(val):
     _, uf = separar_cidade_estado(val)
-    return uf != "" and uf in UFS_BRASIL
+    return uf != ""
 
-def extrair_codigo_apc_turma(cod_turma):
-    """Extrai o código base da disciplina dentro da turma (ex: APC09, APC02, APC01, APC00)."""
-    m = re.search(r"(APC\.?\d+)", str(cod_turma).upper())
-    return m.group(1).replace(".", "") if m else ""
+def calcular_semana_vetorizado(serie_datas):
+    datas_dt = pd.to_datetime(serie_datas, errors="coerce")
+    iso = datas_dt.dt.isocalendar()
+    return (iso["year"].astype(str) + "-Semana " + iso["week"].apply(lambda w: f"{int(w):02d}" if pd.notna(w) else "00")).fillna("Semana Atual")
 
-def extrair_data_nome_arquivo(nome_arq, data_fallback):
-    m = re.search(r"(\d{2})[-._](\d{2})[-._](\d{4})", str(nome_arq))
-    if m:
-        return f"{m.group(3)}-{m.group(2)}-{m.group(1)}"
-    return data_fallback
-
-def calcular_semana_ano(data_iso):
-    try:
-        dt = datetime.strptime(str(data_iso)[:10], "%Y-%m-%d").date()
-        return f"{dt.year}-Semana {dt.isocalendar()[1]:02d}"
-    except Exception:
-        return "Semana Atual"
-
-def padronizar_base_faltas(df):
-    """Garante integridade de todas as colunas da base de Faltas."""
+def indexar_base_faltas(df):
+    """Vetoriza e pré-indexa a base de Faltas apenas 1 vez (na importação)."""
     if df is None or df.empty:
         return pd.DataFrame()
     df = df.copy()
     if "Lancado_RM" not in df.columns:
         df.insert(0, "Lancado_RM", False)
     df["Lancado_RM"] = df["Lancado_RM"].fillna(False).astype(bool)
+
     if "Nome" not in df.columns and "Jovem" in df.columns:
         df["Nome"] = df["Jovem"]
     if "Matricula" not in df.columns and "ID_Jovem" in df.columns:
         df["Matricula"] = df["ID_Jovem"]
+
     df["Matricula"] = df["Matricula"].fillna("").astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
+    df["Nome"] = df["Nome"].fillna("").astype(str).str.strip()
+    df["Turma"] = df["Turma"].fillna("").astype(str).str.strip()
+
     if "Cidade" not in df.columns:
         if "Cidade_UF" in df.columns:
-            pares = df["Cidade_UF"].apply(separar_cidade_estado)
+            pares = [separar_cidade_estado(x) for x in df["Cidade_UF"]]
             df["Cidade"] = [p[0] for p in pares]
             df["Estado"] = [p[1] for p in pares]
         else:
             df["Cidade"] = ""
             df["Estado"] = ""
+
+    # Colunas ocultas de alta velocidade para filtragem em < 8ms
+    df["_turma_norm"] = df["Turma"].str.lstrip("0").str.upper()
+    df["_cod_apc"] = df["_turma_norm"].str.extract(r"(APC\.?\d+)", expand=False).str.replace(".", "", regex=False).fillna("")
+
     if "Disciplina" not in df.columns:
         if "Modulo_Sigla" in df.columns:
             df["Disciplina"] = df["Modulo_Sigla"].fillna("").astype(str)
         else:
-            df["Disciplina"] = df["Turma"].apply(extrair_codigo_apc_turma)
+            df["Disciplina"] = df["_cod_apc"]
     df["Disciplina"] = df["Disciplina"].replace({"": "GERAL", "nan": "GERAL"}).fillna("GERAL")
+
     if "Data_Falta" not in df.columns:
         df["Data_Falta"] = date.today().strftime("%Y-%m-%d")
     df["Data_Falta"] = df["Data_Falta"].astype(str).str.slice(0, 10)
-    df["Semana_Ano"] = df["Data_Falta"].apply(calcular_semana_ano)
     df["Mes_Ano"] = df["Data_Falta"].str.slice(0, 7)
-    df["Instrutor"] = df["Turma"].apply(identificar_instrutor)
-    df["Turno"] = df.apply(lambda r: identificar_turno(r.get("Turma", ""), r.get("Arquivo_Origem", "")), axis=1)
+    df["Semana_Ano"] = calcular_semana_vetorizado(df["Data_Falta"])
+
+    # Mapeamento vetorizado de Instrutor e Turno
+    df["Instrutor"] = df["_turma_norm"].map(MAPA_TURMA_STR).fillna("Não Mapeado / Outros")
+    arq_orig = df["Arquivo_Origem"].astype(str).str.upper() if "Arquivo_Origem" in df.columns else pd.Series("", index=df.index)
+    cond_m = df["_turma_norm"].str.contains("M.", regex=False) | arq_orig.str.contains("MAT|_M\\.", regex=True)
+    cond_v = df["_turma_norm"].str.contains("V.", regex=False) | arq_orig.str.contains("VES|_V\\.", regex=True)
+    df["Turno"] = np.select([cond_m, cond_v], ["M - Manhã", "V - Tarde"], default="Outro")
+
+    # Índice único de busca textual instantânea
+    df["_busca_idx"] = (
+        df["Matricula"] + " " + df["Nome"] + " " + df["Cidade"].astype(str) + " " +
+        df["Estado"].astype(str) + " " + df["Disciplina"].astype(str) + " " + df["Turma"]
+    ).str.upper()
+
     return df
 
-def padronizar_base_moodle(df):
-    """Garante integridade de todas as colunas da base do Moodle."""
+def indexar_base_moodle(df):
+    """Vetoriza e pré-indexa a base do Moodle apenas 1 vez."""
     if df is None or df.empty:
         return pd.DataFrame()
     df = df.copy()
     if "Data_Coleta" not in df.columns:
         df.insert(0, "Data_Coleta", date.today().strftime("%Y-%m-%d"))
     df["Data_Coleta"] = df["Data_Coleta"].astype(str).str.slice(0, 10)
-    df["Semana_Ano"] = df["Data_Coleta"].apply(calcular_semana_ano)
     df["Mes_Ano"] = df["Data_Coleta"].str.slice(0, 7)
+    df["Semana_Ano"] = calcular_semana_vetorizado(df["Data_Coleta"])
+
     if "Jovem" not in df.columns and "Nome" in df.columns:
         df["Jovem"] = df["Nome"]
-    if "Turma" not in df.columns:
-        df["Turma"] = "GERAL"
-    df["Instrutor"] = df["Turma"].apply(identificar_instrutor)
-    df["Turno"] = df["Turma"].apply(identificar_turno)
+    df["Jovem"] = df["Jovem"].fillna("").astype(str).str.strip()
+    df["Turma"] = df["Turma"].fillna("GERAL").astype(str).str.strip()
+    df["Atividade"] = df["Atividade"].fillna("").astype(str).str.strip() if "Atividade" in df.columns else ""
+
+    df["_turma_norm"] = df["Turma"].str.lstrip("0").str.upper()
+    df["_cod_apc"] = df["_turma_norm"].str.extract(r"(APC\.?\d+)", expand=False).str.replace(".", "", regex=False).fillna("")
+    df["Instrutor"] = df["_turma_norm"].map(MAPA_TURMA_STR).fillna("Não Mapeado / Outros")
+
+    cond_m = df["_turma_norm"].str.contains("M.", regex=False)
+    cond_v = df["_turma_norm"].str.contains("V.", regex=False)
+    df["Turno"] = np.select([cond_m, cond_v], ["M - Manhã", "V - Tarde"], default="Outro")
+
     if "Disciplina" not in df.columns:
-        if "Encontro" in df.columns:
-            df["Disciplina"] = df.apply(
-                lambda r: f"{extrair_codigo_apc_turma(r['Turma'])} - {r['Encontro']}".strip(" -")
-                if extrair_codigo_apc_turma(r["Turma"]) else str(r["Encontro"]),
-                axis=1
-            )
-        else:
-            df["Disciplina"] = df["Turma"].apply(lambda t: extrair_codigo_apc_turma(t) or "GERAL")
+        df["Disciplina"] = np.where(df["_cod_apc"] != "", df["_cod_apc"], "GERAL")
+    df["Disciplina"] = df["Disciplina"].fillna("GERAL").astype(str)
+
+    df["_busca_idx"] = (
+        df["Jovem"] + " " + df["Disciplina"] + " " + df["Turma"] + " " + df["Atividade"]
+    ).str.upper()
+
     return df
 
+def filtrar_rapido_por_instrutor(df_alvo, nome_instrutor):
+    if nome_instrutor == "🌟 Todos os Instrutores":
+        return df_alvo
+    if nome_instrutor == "Não Mapeado / Outros":
+        return df_alvo[df_alvo["Instrutor"] == "Não Mapeado / Outros"]
+    codigos_inst = SET_TURMAS_POR_INSTRUTOR.get(nome_instrutor, set())
+    return df_alvo[df_alvo["_turma_norm"].isin(codigos_inst)]
+
 # ==============================================================================
-# 2. LEITOR UNIVERSAL DE PLANILHAS (.XLS, .XLSX, HTML, XML, CSV, ZIP)
+# 2. LEITOR UNIVERSAL PARALELO E CACHEADO (@st.cache_data)
 # ==============================================================================
 class ExtratorTabelaHTML(HTMLParser):
     def __init__(self):
@@ -303,37 +303,40 @@ def ler_xml_excel_2003(texto_xml):
     return None
 
 def converter_bytes_em_dataframe(bytes_arq, nome_arq):
-    if not bytes_arq or len(bytes_arq) < 60 or nome_arq.startswith("~$"):
-        return None, "vazio"
+    # Atalho instantâneo: ignora os ficheiros vazios de 810 bytes sem carregar motores Excel
+    if not bytes_arq or len(bytes_arq) <= 850 or nome_arq.startswith("~$"):
+        return None, "vazio_810b"
 
-    for eng in ["xlrd", "openpyxl"]:
+    ext = nome_arq.lower().split(".")[-1]
+    motores = ["xlrd", "openpyxl"] if ext == "xls" else ["openpyxl", "xlrd"]
+
+    for eng in motores:
         try:
-            xls = pd.ExcelFile(io.BytesIO(bytes_arq), engine=eng)
-            for sheet in xls.sheet_names:
-                df = pd.read_excel(xls, sheet_name=sheet, header=None)
-                if df is not None and not df.dropna(how="all").empty:
-                    return df, f"excel ({eng})"
+            df = pd.read_excel(io.BytesIO(bytes_arq), header=None, engine=eng)
+            if df is not None and not df.dropna(how="all").empty:
+                return df, f"excel ({eng})"
         except Exception:
             pass
 
-    for enc in ["utf-8-sig", "utf-16", "latin-1", "cp1252"]:
+    for enc in ("utf-8-sig", "utf-16", "latin-1"):
         try:
             texto = bytes_arq.decode(enc, errors="ignore").strip()
             if not texto:
                 continue
-            if "<table" in texto.lower() or "<tr" in texto.lower():
+            t_low = texto[:400].lower()
+            if "<table" in t_low or "<tr" in t_low:
                 parser = ExtratorTabelaHTML()
                 parser.feed(texto)
                 if parser.linhas:
                     return pd.DataFrame(parser.linhas), "html_xls"
-            if "<workbook" in texto.lower() or "<row" in texto.lower():
+            if "<workbook" in t_low or "<row" in t_low:
                 df_xml = ler_xml_excel_2003(texto)
                 if df_xml is not None and not df_xml.empty:
                     return df_xml, "xml_xls"
             linhas_txt = [l for l in texto.splitlines() if l.strip()]
             if linhas_txt:
-                for sep in ["\t", ";", ","]:
-                    if sep in linhas_txt[0] or (len(linhas_txt) > 1 and sep in linhas_txt[1]):
+                for sep in ("\t", ";", ","):
+                    if sep in linhas_txt[0]:
                         lidas = [r for r in csv.reader(linhas_txt, delimiter=sep) if any(c.strip() for c in r)]
                         if lidas and max(len(r) for r in lidas) >= 2:
                             return pd.DataFrame(lidas), f"csv ({sep})"
@@ -343,7 +346,6 @@ def converter_bytes_em_dataframe(bytes_arq, nome_arq):
     return None, "sem_dados"
 
 def extrair_alunos_do_dataframe(df_raw, nome_arq, data_padrao_str):
-    """Extração blindada contra colunas em branco (Fidelidade 100%)."""
     if df_raw is None or df_raw.empty:
         return pd.DataFrame()
 
@@ -352,46 +354,47 @@ def extrair_alunos_do_dataframe(df_raw, nome_arq, data_padrao_str):
         return pd.DataFrame()
 
     nome_limpo = nome_arq.replace("\\", "/").split("/")[-1]
-    data_falta = extrair_data_nome_arquivo(nome_limpo, data_padrao_str)
-    semana_ano = calcular_semana_ano(data_falta)
+    m_dt = REGEX_DATA_ARQ.search(nome_limpo)
+    data_falta = f"{m_dt.group(3)}-{m_dt.group(2)}-{m_dt.group(1)}" if m_dt else data_padrao_str
 
-    # Extrai o código da disciplina do nome da planilha (ex: EMP_UB02, INT_UA_03_6H, ProfiUB_04)
-    disc_arquivo = re.split(r"\s*-\s*\d{2}[-._]\d{2}[-._]\d{4}", nome_limpo)[0]
-    disc_arquivo = re.sub(r"\.(xlsx?|csv|tsv)$", "", disc_arquivo, flags=re.I).strip()
+    disc_arquivo = REGEX_DISC_ARQ.split(nome_limpo)[0]
+    disc_arquivo = REGEX_EXT_ARQ.sub("", disc_arquivo).strip()
 
+    # VIA RÁPIDA VETORIZADA: Se a planilha tem o layout padrão de >= 10 colunas (Col A=0, B=1, D=3, F=5, J=9)
+    if df_clean.shape[1] >= 10:
+        col_j = df_clean.iloc[:, 9].dropna().astype(str)
+        if not col_j.empty and col_j.str.contains("APC", case=False, na=False).any():
+            sub = df_clean[[0, 1, 3, 5, 9]].copy()
+            sub.columns = ["Matricula", "Nome", "Disciplina", "Cidade_UF", "Turma"]
+            sub = sub.dropna(subset=["Nome", "Turma"], how="any")
+            sub = sub[~sub["Turma"].astype(str).str.upper().isin(["TURMA", "CODTURMA", "NAN", ""])]
+            if not sub.empty:
+                pares = [separar_cidade_estado(x) for x in sub["Cidade_UF"]]
+                sub["Cidade"] = [p[0] for p in pares]
+                sub["Estado"] = [p[1] for p in pares]
+                sub["Disciplina"] = sub["Disciplina"].fillna(disc_arquivo).replace("", disc_arquivo)
+                sub["Data_Falta"] = data_falta
+                sub["Arquivo_Origem"] = nome_limpo
+                return sub[["Matricula", "Nome", "Cidade", "Estado", "Disciplina", "Turma", "Data_Falta", "Arquivo_Origem"]]
+
+    # FALLBACK LINHA A LINHA (Para planilhas fora do padrão de 10 colunas)
     registros = []
-
     for _, row in df_clean.iterrows():
         valores = [str(v).strip() for v in row.values if pd.notna(v) and str(v).strip() not in ("", "nan", "None")]
         if len(valores) < 2:
             continue
-
         linha_upper = " ".join(valores).upper()
         if linha_upper.startswith("ID ") or ("NOME" in linha_upper and "TURMA" in linha_upper and "@" not in linha_upper):
             continue
 
-        # 1. Turma (Col J ou padrão APC)
-        turma = next((v for v in valores if re.search(r"(APC\.?\d+|\d+\.[A-Z0-9]+\.\d+[MV])", v, re.I)), "")
-        if not turma and len(row) > 9 and pd.notna(row.iloc[9]):
-            turma = str(row.iloc[9]).strip()
-
-        # 2. Email
+        turma = next((v for v in valores if REGEX_TURMA_APC.search(v)), "")
         email = next((v for v in valores if "@" in v and "." in v), "")
-
-        # 3. Cidade e Estado (Validação estrita das 27 UFs do Brasil)
         cid_uf_val = next((v for v in valores if eh_cidade_uf(v)), "")
-        if not cid_uf_val and len(row) > 5 and pd.notna(row.iloc[5]) and eh_cidade_uf(row.iloc[5]):
-            cid_uf_val = str(row.iloc[5]).strip()
         cidade, estado = separar_cidade_estado(cid_uf_val)
 
-        # 4. Matrícula (Col A ou primeiro número de matrícula)
-        matricula = ""
         val0_limpo = re.sub(r"\.0$", "", valores[0])
-        if re.match(r"^\d{3,12}$", val0_limpo):
-            matricula = val0_limpo
+        matricula = val0_limpo if REGEX_MATRICULA.match(val0_limpo) else ""
 
-        # 5. Nome do Jovem
-        nome_jovem = ""
         if matricula and len(valores) >= 2:
             nome_jovem = valores[1]
         elif email and valores.index(email) >= 1:
@@ -399,88 +402,80 @@ def extrair_alunos_do_dataframe(df_raw, nome_arq, data_padrao_str):
         else:
             nome_jovem = valores[0]
 
-        # 6. Código da Disciplina (Coluna D = índice 3 da planilha ou prefixo do ficheiro)
-        disciplina = ""
-        if len(row) > 3 and pd.notna(row.iloc[3]):
-            cand_d = str(row.iloc[3]).strip()
-            if cand_d and cand_d not in (matricula, nome_jovem, email, cid_uf_val, turma) and not eh_cidade_uf(cand_d):
-                disciplina = cand_d
-        if not disciplina:
-            usados = {matricula, valores[0], nome_jovem, email, cid_uf_val, turma}
-            for v in valores:
-                if v not in usados and not re.match(r"^\d{2}/\d{2}/\d{4}$", v) and not v.lower().startswith("encontro"):
-                    disciplina = v
-                    break
-        if not disciplina:
-            disciplina = disc_arquivo or extrair_codigo_apc_turma(turma) or "GERAL"
-
+        disciplina = disc_arquivo or "GERAL"
         if not turma:
             turma = disciplina
         if len(nome_jovem) < 3 or nome_jovem.isdigit():
             continue
 
         registros.append({
-            "Lancado_RM": False,
             "Matricula": matricula,
-            "Nome": re.sub(r"\s+", " ", nome_jovem).strip(),
+            "Nome": nome_jovem,
             "Cidade": cidade,
             "Estado": estado,
             "Disciplina": disciplina,
             "Turma": turma,
-            "Turno": identificar_turno(turma, nome_arq),
-            "Instrutor": identificar_instrutor(turma),
             "Data_Falta": data_falta,
-            "Semana_Ano": semana_ano,
-            "Mes_Ano": data_falta[:7],
             "Arquivo_Origem": nome_limpo
         })
 
     return pd.DataFrame(registros)
 
-def processar_arquivos_enviados(lista_arquivos, data_padrao_str):
-    dfs_extraidos = []
-    stats = {"total_arquivos": 0, "com_faltas": 0, "em_branco": 0, "detalhes": []}
+def _processar_unico_item(args):
+    b_arq, nome_item, data_padrao_str = args
+    nome_curto = nome_item.replace("\\", "/").split("/")[-1]
+    df_bruto, _ = converter_bytes_em_dataframe(b_arq, nome_curto)
+    if df_bruto is not None:
+        df_limpo = extrair_alunos_do_dataframe(df_bruto, nome_item, data_padrao_str)
+        if not df_limpo.empty:
+            return df_limpo, True
+    return None, False
 
-    def processar_item_bytes(b_arq, nome_item):
-        stats["total_arquivos"] += 1
-        nome_curto = nome_item.replace("\\", "/").split("/")[-1]
-        df_bruto, formato = converter_bytes_em_dataframe(b_arq, nome_curto)
-        if df_bruto is not None:
-            df_limpo = extrair_alunos_do_dataframe(df_bruto, nome_item, data_padrao_str)
-            if not df_limpo.empty:
-                dfs_extraidos.append(df_limpo)
-                stats["com_faltas"] += 1
-                stats["detalhes"].append(f"✅ {nome_curto}: {len(df_limpo)} jovens ({formato})")
+@st.cache_data(show_spinner=False, max_entries=10)
+def processar_lote_em_paralelo(itens_bytes_nomes, data_padrao_str):
+    """Processa dezenas de ficheiros em paralelo usando ThreadPoolExecutor e guarda em Cache."""
+    tarefas = [(b, nome, data_padrao_str) for b, nome in itens_bytes_nomes]
+    dfs_validos = []
+    com_faltas = 0
+    em_branco = 0
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        for df_res, teve_falta in executor.map(_processar_unico_item, tarefas):
+            if teve_falta and df_res is not None:
+                dfs_validos.append(df_res)
+                com_faltas += 1
             else:
-                stats["em_branco"] += 1
-                stats["detalhes"].append(f"⚪ {nome_curto}: Sem alunos ({len(b_arq)} bytes)")
-        else:
-            stats["em_branco"] += 1
-            stats["detalhes"].append(f"⚪ {nome_curto}: Ficheiro em branco ({len(b_arq)} bytes)")
+                em_branco += 1
 
-    def abrir_zip_recursivo(bytes_zip):
-        with zipfile.ZipFile(io.BytesIO(bytes_zip), "r") as z:
+    df_final = pd.concat(dfs_validos, ignore_index=True) if dfs_validos else pd.DataFrame()
+    if not df_final.empty:
+        df_final = indexar_base_faltas(df_final)
+    stats = {
+        "total_arquivos": len(tarefas),
+        "com_faltas": com_faltas,
+        "em_branco": em_branco
+    }
+    return df_final, stats
+
+def extrair_itens_upload(lista_arquivos):
+    itens = []
+    def descompactar_zip(b_zip):
+        with zipfile.ZipFile(io.BytesIO(b_zip), "r") as z:
             for item in z.namelist():
                 if item.endswith("/") or "__MACOSX" in item or item.split("/")[-1].startswith("~$"):
                     continue
-                item_lower = item.lower()
-                if item_lower.endswith(".zip"):
-                    abrir_zip_recursivo(z.read(item))
-                elif item_lower.endswith((".xls", ".xlsx", ".csv", ".tsv")):
-                    processar_item_bytes(z.read(item), item)
+                ilow = item.lower()
+                if ilow.endswith(".zip"):
+                    descompactar_zip(z.read(item))
+                elif ilow.endswith((".xls", ".xlsx", ".csv", ".tsv")):
+                    itens.append((z.read(item), item))
 
     for arq in lista_arquivos:
-        conteudo = arq.getvalue()
         if arq.name.lower().endswith(".zip"):
-            try:
-                abrir_zip_recursivo(conteudo)
-            except Exception as e:
-                stats["detalhes"].append(f"❌ Erro ao abrir ZIP {arq.name}: {e}")
+            descompactar_zip(arq.getvalue())
         else:
-            processar_item_bytes(conteudo, arq.name)
-
-    df_final = pd.concat(dfs_extraidos, ignore_index=True) if dfs_extraidos else pd.DataFrame()
-    return df_final, stats
+            itens.append((arq.getvalue(), arq.name))
+    return itens
 
 # ==============================================================================
 # 3. LOGIN SEGURO
@@ -514,24 +509,25 @@ if "modulo_ativo" not in st.session_state:
 # ==============================================================================
 with st.sidebar:
     st.markdown("### 🗄️ BACKUP HISTÓRICO (.XLSX)")
-    st.caption("Guarde ou restaure toda a base (Faltas + Moodle) num único ficheiro Excel:")
     arq_hist = st.file_uploader("📂 Restaurar Histórico Salvo:", type=["xlsx"])
     if arq_hist and st.button("🔄 Carregar Histórico", use_container_width=True):
         xls = pd.ExcelFile(arq_hist)
         if "Historico_Moodle" in xls.sheet_names:
-            st.session_state["base_moodle"] = padronizar_base_moodle(pd.read_excel(xls, "Historico_Moodle"))
+            st.session_state["base_moodle"] = indexar_base_moodle(pd.read_excel(xls, "Historico_Moodle"))
         if "Historico_Faltas" in xls.sheet_names:
-            st.session_state["base_faltas"] = padronizar_base_faltas(pd.read_excel(xls, "Historico_Faltas"))
-        st.success("✅ Histórico restaurado e validado!")
+            st.session_state["base_faltas"] = indexar_base_faltas(pd.read_excel(xls, "Historico_Faltas"))
+        st.success("✅ Histórico restaurado e indexado!")
         st.rerun()
 
     if not st.session_state["base_moodle"].empty or not st.session_state["base_faltas"].empty:
         buf = io.BytesIO()
         with pd.ExcelWriter(buf, engine="openpyxl") as writer:
             if not st.session_state["base_moodle"].empty:
-                st.session_state["base_moodle"].to_excel(writer, sheet_name="Historico_Moodle", index=False)
+                cols_m_exp = [c for c in st.session_state["base_moodle"].columns if not c.startswith("_")]
+                st.session_state["base_moodle"][cols_m_exp].to_excel(writer, sheet_name="Historico_Moodle", index=False)
             if not st.session_state["base_faltas"].empty:
-                st.session_state["base_faltas"].to_excel(writer, sheet_name="Historico_Faltas", index=False)
+                cols_f_exp = [c for c in st.session_state["base_faltas"].columns if not c.startswith("_")]
+                st.session_state["base_faltas"][cols_f_exp].to_excel(writer, sheet_name="Historico_Faltas", index=False)
         st.download_button(
             label="💾 Baixar Base Histórica (.xlsx)",
             data=buf.getvalue(),
@@ -565,14 +561,228 @@ with nav3:
 st.write("")
 
 # ==============================================================================
-# MÓDULO 1: CONTROLE DE FALTAS (SHAREPOINT -> RM)
+# FRAGMENTO ISOLADO DE FILTRAGEM ULTRARRÁPIDA: FALTAS
+# ==============================================================================
+@st.fragment
+def renderizar_painel_faltas():
+    df_f = st.session_state["base_faltas"]
+    if df_f.empty:
+        return
+
+    st.markdown("#### ⚡ Filtros Instantâneos (Instrutor, Código da Disciplina, Período e Turno)")
+    f1, f2, f3, f4, f5, f6 = st.columns([1.4, 1.4, 0.9, 1.1, 0.9, 1.2])
+
+    with f1:
+        opcoes_instrutor = ["🌟 Todos os Instrutores"] + list(BANCO_TURMAS.keys()) + ["Não Mapeado / Outros"]
+        sel_instrutor_f = st.selectbox("👤 1. Instrutor(a):", opcoes_instrutor, index=0, key="f_inst")
+    with f3:
+        modo_tempo_f = st.selectbox("🗓️ 3. Modo:", ["📅 Dia", "📆 Semana", "🗓️ Mês", "♾️ Tudo"], index=0, key="f_modo")
+    with f4:
+        if modo_tempo_f == "📅 Dia":
+            opcoes_p = ["Todos os Dias"] + sorted(df_f["Data_Falta"].unique().tolist(), reverse=True)
+            sel_periodo_f = st.selectbox("Escolher Dia:", opcoes_p, key="f_dia")
+        elif modo_tempo_f == "📆 Semana":
+            opcoes_p = ["Todas as Semanas"] + sorted(df_f["Semana_Ano"].unique().tolist(), reverse=True)
+            sel_periodo_f = st.selectbox("Escolher Semana:", opcoes_p, key="f_sem")
+        elif modo_tempo_f == "🗓️ Mês":
+            opcoes_p = ["Todos os Meses"] + sorted(df_f["Mes_Ano"].unique().tolist(), reverse=True)
+            sel_periodo_f = st.selectbox("Escolher Mês:", opcoes_p, key="f_mes")
+        else:
+            sel_periodo_f = "Tudo"
+            st.text_input("Período:", value="Todo o Histórico", disabled=True)
+
+    df_sub = filtrar_rapido_por_instrutor(df_f, sel_instrutor_f)
+    if modo_tempo_f == "📅 Dia" and sel_periodo_f != "Todos os Dias":
+        df_sub = df_sub[df_sub["Data_Falta"] == sel_periodo_f]
+    elif modo_tempo_f == "📆 Semana" and sel_periodo_f != "Todas as Semanas":
+        df_sub = df_sub[df_sub["Semana_Ano"] == sel_periodo_f]
+    elif modo_tempo_f == "🗓️ Mês" and sel_periodo_f != "Todos os Meses":
+        df_sub = df_sub[df_sub["Mes_Ano"] == sel_periodo_f]
+
+    with f2:
+        codigos_disc = sorted(df_sub["Disciplina"].unique().tolist())
+        codigos_apc = sorted([c for c in df_sub["_cod_apc"].unique().tolist() if c and c not in codigos_disc])
+        opcoes_disc_f = ["Todas as Disciplinas"] + codigos_disc + [f"Código Turma: {a}" for a in codigos_apc]
+        sel_disc_f = st.selectbox("📘 2. Código da Disciplina:", opcoes_disc_f, index=0, key="f_disc")
+    with f5:
+        sel_turno_f = st.selectbox("🕒 4. Turno:", ["Todos (M + V)", "M - Manhã", "V - Tarde"], key="f_turno")
+    with f6:
+        busca_f = st.text_input("🔍 5. Busca Livre:", placeholder="Nome, Matrícula, UF...", key="f_busca")
+
+    if sel_disc_f != "Todas as Disciplinas":
+        if sel_disc_f.startswith("Código Turma: "):
+            apc_alvo = sel_disc_f.replace("Código Turma: ", "")
+            df_sub = df_sub[df_sub["_cod_apc"] == apc_alvo]
+        else:
+            df_sub = df_sub[df_sub["Disciplina"] == sel_disc_f]
+
+    if sel_turno_f != "Todos (M + V)":
+        df_sub = df_sub[df_sub["Turno"] == sel_turno_f]
+
+    if busca_f:
+        df_sub = df_sub[df_sub["_busca_idx"].str.contains(busca_f.strip().upper(), regex=False, na=False)]
+
+    if df_sub.empty:
+        st.warning("⚠️ Nenhum registo encontrado para esta combinação de filtros.")
+        return
+
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.metric("Jovens Ausentes", len(df_sub))
+    m2.metric("Disciplinas Ativas", df_sub["Disciplina"].nunique())
+    m3.metric("Turmas no Filtro", df_sub["Turma"].nunique())
+    m4.metric("☀️ Manhã (M)", int((df_sub["Turno"] == "M - Manhã").sum()))
+    m5.metric("🌤️ Tarde (V)", int((df_sub["Turno"] == "V - Tarde").sum()))
+
+    sub_f1, sub_f2, sub_f3 = st.tabs([
+        "📋 1. RELAÇÃO DE JOVENS AUSENTES (DIA / SEMANA / MÊS)",
+        "🚨 2. RANKING DE REINCIDÊNCIA (QUEM MAIS FALTA)",
+        "📘 3. RESUMO POR DISCIPLINA E TURMA"
+    ])
+
+    colunas_foco = ["Lancado_RM", "Matricula", "Nome", "Cidade", "Estado", "Disciplina", "Turma", "Turno", "Data_Falta", "Instrutor"]
+
+    with sub_f1:
+        df_ordenado = df_sub[colunas_foco].sort_values(by=["Turno", "Disciplina", "Turma", "Nome"])
+        df_editado = st.data_editor(
+            df_ordenado,
+            use_container_width=True,
+            hide_index=True,
+            key="editor_faltas_rm",
+            column_config={
+                "Lancado_RM": st.column_config.CheckboxColumn("✅ RM", default=False),
+                "Matricula": st.column_config.TextColumn("Matrícula do Jovem"),
+                "Nome": st.column_config.TextColumn("Nome"),
+                "Cidade": st.column_config.TextColumn("Cidade"),
+                "Estado": st.column_config.TextColumn("Estado"),
+                "Disciplina": st.column_config.TextColumn("Disciplina"),
+                "Turma": st.column_config.TextColumn("Turma"),
+                "Turno": st.column_config.TextColumn("Turno"),
+                "Data_Falta": st.column_config.TextColumn("Data"),
+                "Instrutor": st.column_config.TextColumn("Instrutor(a)")
+            }
+        )
+        st.session_state["base_faltas"].loc[df_editado.index, "Lancado_RM"] = df_editado["Lancado_RM"]
+
+    with sub_f2:
+        rank_f = (
+            df_sub.groupby(["Matricula", "Nome", "Cidade", "Estado", "Turma", "Turno"], as_index=False)
+            .agg(
+                Total_Faltas=("Data_Falta", "count"),
+                Disciplinas=("Disciplina", lambda x: ", ".join(sorted(set(x)))),
+                Datas_Ausente=("Data_Falta", lambda x: ", ".join(sorted(set(x))))
+            )
+            .sort_values(by="Total_Faltas", ascending=False)
+        )
+        st.dataframe(rank_f, use_container_width=True, hide_index=True)
+
+    with sub_f3:
+        resumo_t = (
+            df_sub.groupby(["Turno", "Disciplina", "Turma", "Instrutor"], as_index=False)
+            .agg(Total_Ausencias=("Nome", "count"), Jovens_Unicos=("Nome", "nunique"))
+            .sort_values(by=["Turno", "Total_Ausencias"], ascending=[True, False])
+        )
+        st.dataframe(resumo_t, use_container_width=True, hide_index=True)
+
+# ==============================================================================
+# FRAGMENTO ISOLADO DE FILTRAGEM ULTRARRÁPIDA: MOODLE
+# ==============================================================================
+@st.fragment
+def renderizar_painel_moodle():
+    df_m = st.session_state["base_moodle"]
+    if df_m.empty:
+        return
+
+    st.markdown("#### ⚡ Filtros Instantâneos do Moodle (Instrutor, Disciplina, Período e Turno)")
+    mc1, mc2, mc3, mc4, mc5, mc6 = st.columns([1.4, 1.4, 0.9, 1.1, 0.9, 1.2])
+    with mc1:
+        opcoes_inst_m = ["🌟 Todos os Instrutores"] + list(BANCO_TURMAS.keys()) + ["Não Mapeado / Outros"]
+        sel_inst_m = st.selectbox("👤 1. Instrutor(a):", opcoes_inst_m, index=0, key="m_inst")
+    with mc3:
+        modo_m = st.selectbox("🗓️ 3. Modo:", ["📅 Dia", "📆 Semana", "🗓️ Mês", "♾️ Tudo"], index=0, key="m_modo")
+    with mc4:
+        if modo_m == "📅 Dia":
+            op_pm = ["Todos os Dias"] + sorted(df_m["Data_Coleta"].unique().tolist(), reverse=True)
+            sel_per_m = st.selectbox("Escolher Dia:", op_pm, key="m_dia")
+        elif modo_m == "📆 Semana":
+            op_pm = ["Todas as Semanas"] + sorted(df_m["Semana_Ano"].unique().tolist(), reverse=True)
+            sel_per_m = st.selectbox("Escolher Semana:", op_pm, key="m_sem")
+        elif modo_m == "🗓️ Mês":
+            op_pm = ["Todos os Meses"] + sorted(df_m["Mes_Ano"].unique().tolist(), reverse=True)
+            sel_per_m = st.selectbox("Escolher Mês:", op_pm, key="m_mes")
+        else:
+            sel_per_m = "Tudo"
+            st.text_input("Período:", value="Todo o Histórico", disabled=True, key="m_tudo")
+
+    df_m_sub = filtrar_rapido_por_instrutor(df_m, sel_inst_m)
+    if modo_m == "📅 Dia" and sel_per_m != "Todos os Dias":
+        df_m_sub = df_m_sub[df_m_sub["Data_Coleta"] == sel_per_m]
+    elif modo_m == "📆 Semana" and sel_per_m != "Todas as Semanas":
+        df_m_sub = df_m_sub[df_m_sub["Semana_Ano"] == sel_per_m]
+    elif modo_m == "🗓️ Mês" and sel_per_m != "Todos os Meses":
+        df_m_sub = df_m_sub[df_m_sub["Mes_Ano"] == sel_per_m]
+
+    with mc2:
+        disc_m_disp = sorted(df_m_sub["Disciplina"].unique().tolist())
+        apc_m_disp = sorted([c for c in df_m_sub["_cod_apc"].unique().tolist() if c and c not in disc_m_disp])
+        opcoes_disc_m = ["Todas as Disciplinas"] + disc_m_disp + [f"Código Turma: {a}" for a in apc_m_disp]
+        sel_disc_m = st.selectbox("📘 2. Código da Disciplina:", opcoes_disc_m, index=0, key="m_disc")
+    with mc5:
+        sel_turno_m = st.selectbox("🕒 4. Turno:", ["Todos (M + V)", "M - Manhã", "V - Tarde"], key="m_turno")
+    with mc6:
+        busca_m = st.text_input("🔍 5. Busca Livre:", placeholder="Jovem, Atividade...", key="m_busca")
+
+    if sel_disc_m != "Todas as Disciplinas":
+        if sel_disc_m.startswith("Código Turma: "):
+            apc_alvo_m = sel_disc_m.replace("Código Turma: ", "")
+            df_m_sub = df_m_sub[df_m_sub["_cod_apc"] == apc_alvo_m]
+        else:
+            df_m_sub = df_m_sub[df_m_sub["Disciplina"] == sel_disc_m]
+
+    if sel_turno_m != "Todos (M + V)":
+        df_m_sub = df_m_sub[df_m_sub["Turno"] == sel_turno_m]
+    if busca_m:
+        df_m_sub = df_m_sub[df_m_sub["_busca_idx"].str.contains(busca_m.strip().upper(), regex=False, na=False)]
+
+    km1, km2, km3, km4, km5 = st.columns(5)
+    km1.metric("Pendências Listadas", len(df_m_sub))
+    km2.metric("Disciplinas no Filtro", df_m_sub["Disciplina"].nunique())
+    km3.metric("Turmas no Filtro", df_m_sub["Turma"].nunique())
+    km4.metric("☀️ Manhã (M)", int((df_m_sub["Turno"] == "M - Manhã").sum()))
+    km5.metric("🌤️ Tarde (V)", int((df_m_sub["Turno"] == "V - Tarde").sum()))
+
+    sub_m1, sub_m2 = st.tabs([
+        "📋 1. PENDÊNCIAS POR INSTRUTOR E DISCIPLINA",
+        "📈 2. COMPARATIVO SEMANAL / MENSAL (QUEM REGULARIZOU)"
+    ])
+    with sub_m1:
+        cols_m_ordem = ["Data_Coleta", "Instrutor", "Disciplina", "Turno", "Turma", "Atividade", "Status", "Jovem", "Email_Enviado"]
+        cols_m_pres = [c for c in cols_m_ordem if c in df_m_sub.columns]
+        st.dataframe(df_m_sub[cols_m_pres], use_container_width=True, hide_index=True)
+    with sub_m2:
+        datas_m = sorted(df_m["Data_Coleta"].unique().tolist())
+        if len(datas_m) < 2:
+            st.info("Registe pelo menos 2 datas diferentes de coleta para comparar quem regularizou na semana.")
+        else:
+            cd1, cd2 = st.columns(2)
+            with cd1:
+                d_ant = st.selectbox("1ª Coleta (Cobrança Inicial):", datas_m, index=0)
+            with cd2:
+                d_nov = st.selectbox("2ª Coleta (Conferência):", datas_m, index=len(datas_m)-1)
+            df_a = filtrar_rapido_por_instrutor(df_m[df_m["Data_Coleta"] == d_ant], sel_inst_m)
+            df_n = filtrar_rapido_por_instrutor(df_m[df_m["Data_Coleta"] == d_nov], sel_inst_m)
+            comp = pd.merge(df_a, df_n, on=["Turma", "Atividade", "Jovem"], how="outer", indicator=True)
+            st.metric("✅ Jovens que Regularizaram após o E-mail", int((comp["_merge"] == "left_only").sum()))
+            st.dataframe(comp[comp["_merge"] == "left_only"][["Turma", "Atividade", "Jovem"]], use_container_width=True, hide_index=True)
+
+# ==============================================================================
+# RENDERIZAÇÃO DO MÓDULO ATIVO
 # ==============================================================================
 if st.session_state["modulo_ativo"] == "FALTAS":
     st.markdown("""
     <div class="banner-modulo" style="background: linear-gradient(90deg, #ea580c 0%, #c2410c 100%); border-left: 8px solid #fed7aa;">
         <h2 style="margin:0;color:white;">🟧 MÓDULO: Controle de Faltas (SharePoint ➔ Diário de Classe RM)</h2>
         <p style="margin:4px 0 0 0;opacity:0.95;font-size:14px;">
-            Foco fidedigno: <b>Matrícula, Nome, Cidade, Estado, Disciplina, Turma e Turno</b> filtrados por <b>Instrutor</b> e <b>Código da Disciplina</b>.
+            Motor Paralelo Multi-Thread + Filtragem Instantânea: <b>Matrícula, Nome, Cidade, Estado, Disciplina, Turma e Turno</b>.
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -598,15 +808,14 @@ if st.session_state["modulo_ativo"] == "FALTAS":
         if arquivos_up:
             assinatura_atual = [f"{a.name}_{a.size}" for a in arquivos_up]
             if st.session_state.get("ultimos_arquivos_lidos") != assinatura_atual:
-                with st.spinner("A analisar ficheiros e a validar integridade dos dados..."):
-                    df_novos, stats = processar_arquivos_enviados(arquivos_up, data_ref.strftime("%Y-%m-%d"))
+                with st.spinner("⚡ Leitura paralela de alta velocidade em curso..."):
+                    itens_extraidos = extrair_itens_upload(arquivos_up)
+                    df_novos, stats = processar_lote_em_paralelo(itens_extraidos, data_ref.strftime("%Y-%m-%d"))
                     st.session_state["ultimos_arquivos_lidos"] = assinatura_atual
                     st.session_state["ultimo_diagnostico"] = stats
 
                     if not df_novos.empty:
                         df_acum = pd.concat([st.session_state["base_faltas"], df_novos], ignore_index=True)
-                        df_acum = padronizar_base_faltas(df_acum)
-                        # Chave de integridade inclui Disciplina para não perder faltas do mesmo jovem em disciplinas distintas
                         df_acum = df_acum.drop_duplicates(
                             subset=["Data_Falta", "Disciplina", "Turma", "Matricula", "Nome"], keep="first"
                         ).reset_index(drop=True)
@@ -615,164 +824,19 @@ if st.session_state["modulo_ativo"] == "FALTAS":
         if "ultimo_diagnostico" in st.session_state:
             st_diag = st.session_state["ultimo_diagnostico"]
             st.info(
-                f"🔍 **Diagnóstico da Leitura:** **{st_diag['total_arquivos']}** ficheiros processados "
-                f"| ✅ **{st_diag['com_faltas']}** continham jovens ausentes "
-                f"| ⚪ **{st_diag['em_branco']}** estavam em branco (810 bytes)."
+                f"⚡ **Leitura Concluída:** **{st_diag['total_arquivos']}** ficheiros processados em paralelo "
+                f"| ✅ **{st_diag['com_faltas']}** com jovens ausentes "
+                f"| ⚪ **{st_diag['em_branco']}** descartados (em branco / 810 bytes)."
             )
-            with st.expander("🔎 Ver detalhe ficheiro a ficheiro"):
-                st.write("\n".join(st_diag["detalhes"]))
 
-    if not st.session_state["base_faltas"].empty:
-        st.session_state["base_faltas"] = padronizar_base_faltas(st.session_state["base_faltas"])
-        df_f = st.session_state["base_faltas"]
+    renderizar_painel_faltas()
 
-        # ======================================================================
-        # BARRA DE FILTROS: INSTRUTOR + DISCIPLINAS + PERÍODO (DIA/SEMANA/MÊS) + TURNO
-        # ======================================================================
-        st.markdown("#### 🎯 Filtros de Trabalho (Instrutor, Código da Disciplina, Período e Turno)")
-        f1, f2, f3, f4, f5, f6 = st.columns([1.4, 1.4, 0.9, 1.1, 0.9, 1.2])
-
-        with f1:
-            opcoes_instrutor = ["🌟 Todos os Instrutores"] + list(BANCO_TURMAS.keys()) + ["Não Mapeado / Outros"]
-            sel_instrutor_f = st.selectbox("👤 1. Instrutor(a):", opcoes_instrutor, index=0, key="f_inst")
-
-        with f3:
-            modo_tempo_f = st.selectbox("🗓️ 3. Modo:", ["📅 Dia", "📆 Semana", "🗓️ Mês", "♾️ Tudo"], index=0, key="f_modo")
-
-        with f4:
-            if modo_tempo_f == "📅 Dia":
-                opcoes_p = ["Todos os Dias"] + sorted(df_f["Data_Falta"].astype(str).unique().tolist(), reverse=True)
-                sel_periodo_f = st.selectbox("Escolher Dia:", opcoes_p, key="f_dia")
-            elif modo_tempo_f == "📆 Semana":
-                opcoes_p = ["Todas as Semanas"] + sorted(df_f["Semana_Ano"].astype(str).unique().tolist(), reverse=True)
-                sel_periodo_f = st.selectbox("Escolher Semana:", opcoes_p, key="f_sem")
-            elif modo_tempo_f == "🗓️ Mês":
-                opcoes_p = ["Todos os Meses"] + sorted(df_f["Mes_Ano"].astype(str).unique().tolist(), reverse=True)
-                sel_periodo_f = st.selectbox("Escolher Mês:", opcoes_p, key="f_mes")
-            else:
-                sel_periodo_f = "Tudo"
-                st.text_input("Período:", value="Todo o Histórico", disabled=True)
-
-        # Filtra primeiro por Instrutor e Período para montar a lista exata de Disciplinas disponíveis naquele Dia/Semana/Mês
-        df_sub = filtrar_df_por_instrutor(df_f, sel_instrutor_f)
-        if modo_tempo_f == "📅 Dia" and sel_periodo_f != "Todos os Dias":
-            df_sub = df_sub[df_sub["Data_Falta"] == sel_periodo_f]
-        elif modo_tempo_f == "📆 Semana" and sel_periodo_f != "Todas as Semanas":
-            df_sub = df_sub[df_sub["Semana_Ano"] == sel_periodo_f]
-        elif modo_tempo_f == "🗓️ Mês" and sel_periodo_f != "Todos os Meses":
-            df_sub = df_sub[df_sub["Mes_Ano"] == sel_periodo_f]
-
-        with f2:
-            # Reúne códigos de disciplina da planilha (ex: EMP_UB02) e códigos APC das turmas (ex: APC09)
-            codigos_disc = sorted(df_sub["Disciplina"].dropna().astype(str).unique().tolist())
-            codigos_apc = sorted(list({extrair_codigo_apc_turma(t) for t in df_sub["Turma"].dropna() if extrair_codigo_apc_turma(t)}))
-            opcoes_disc_f = ["Todas as Disciplinas"] + codigos_disc + [f"Código Turma: {a}" for a in codigos_apc if a not in codigos_disc]
-            sel_disc_f = st.selectbox("📘 2. Código da Disciplina:", opcoes_disc_f, index=0, key="f_disc")
-
-        with f5:
-            sel_turno_f = st.selectbox("🕒 4. Turno:", ["Todos (M + V)", "M - Manhã", "V - Tarde"], key="f_turno")
-
-        with f6:
-            busca_f = st.text_input("🔍 5. Busca Livre:", placeholder="Nome, Matrícula, Disciplina...", key="f_busca")
-
-        # Aplica o filtro de Disciplina
-        if sel_disc_f != "Todas as Disciplinas":
-            if sel_disc_f.startswith("Código Turma: "):
-                apc_alvo = sel_disc_f.replace("Código Turma: ", "").strip()
-                df_sub = df_sub[df_sub["Turma"].astype(str).str.upper().str.contains(apc_alvo, na=False)]
-            else:
-                df_sub = df_sub[df_sub["Disciplina"] == sel_disc_f]
-
-        if sel_turno_f != "Todos (M + V)":
-            df_sub = df_sub[df_sub["Turno"] == sel_turno_f]
-
-        if busca_f:
-            termo = busca_f.strip()
-            df_sub = df_sub[
-                df_sub["Nome"].astype(str).str.contains(termo, case=False, na=False) |
-                df_sub["Matricula"].astype(str).str.contains(termo, case=False, na=False) |
-                df_sub["Disciplina"].astype(str).str.contains(termo, case=False, na=False) |
-                df_sub["Turma"].astype(str).str.contains(termo, case=False, na=False) |
-                df_sub["Cidade"].astype(str).str.contains(termo, case=False, na=False) |
-                df_sub["Estado"].astype(str).str.contains(termo, case=False, na=False)
-            ]
-
-        if df_sub.empty:
-            st.warning(
-                "⚠️ Nenhum registo encontrado para esta combinação de filtros. "
-                "Experimente selecionar **'🌟 Todos os Instrutores'** ou **'Todas as Disciplinas'**."
-            )
-        else:
-            m1, m2, m3, m4, m5 = st.columns(5)
-            m1.metric("Jovens Ausentes", len(df_sub))
-            m2.metric("Disciplinas Ativas", df_sub["Disciplina"].nunique())
-            m3.metric("Turmas no Filtro", df_sub["Turma"].nunique())
-            m4.metric("☀️ Manhã (M)", len(df_sub[df_sub["Turno"] == "M - Manhã"]))
-            m5.metric("🌤️ Tarde (V)", len(df_sub[df_sub["Turno"] == "V - Tarde"]))
-
-            sub_f1, sub_f2, sub_f3 = st.tabs([
-                "📋 1. RELAÇÃO DE JOVENS AUSENTES (DIA / SEMANA / MÊS)",
-                "🚨 2. RANKING DE REINCIDÊNCIA (QUEM MAIS FALTA)",
-                "📘 3. RESUMO POR DISCIPLINA E TURMA"
-            ])
-
-            colunas_foco = ["Lancado_RM", "Matricula", "Nome", "Cidade", "Estado", "Disciplina", "Turma", "Turno", "Data_Falta", "Instrutor"]
-            cols_existentes = [c for c in colunas_foco if c in df_sub.columns]
-
-            with sub_f1:
-                df_ordenado = df_sub[cols_existentes].sort_values(by=["Turno", "Disciplina", "Turma", "Nome"])
-                df_editado = st.data_editor(
-                    df_ordenado,
-                    use_container_width=True,
-                    hide_index=True,
-                    key="editor_faltas_rm",
-                    column_config={
-                        "Lancado_RM": st.column_config.CheckboxColumn("✅ RM", default=False),
-                        "Matricula": st.column_config.TextColumn("Matrícula do Jovem"),
-                        "Nome": st.column_config.TextColumn("Nome"),
-                        "Cidade": st.column_config.TextColumn("Cidade"),
-                        "Estado": st.column_config.TextColumn("Estado"),
-                        "Disciplina": st.column_config.TextColumn("Disciplina"),
-                        "Turma": st.column_config.TextColumn("Turma"),
-                        "Turno": st.column_config.TextColumn("Turno"),
-                        "Data_Falta": st.column_config.TextColumn("Data"),
-                        "Instrutor": st.column_config.TextColumn("Instrutor(a)")
-                    }
-                )
-                # Preserva a marcação do checkbox RM na base principal sem perder ao mudar de filtro
-                st.session_state["base_faltas"].loc[df_editado.index, "Lancado_RM"] = df_editado["Lancado_RM"]
-
-            with sub_f2:
-                rank_f = (
-                    df_sub.groupby(["Matricula", "Nome", "Cidade", "Estado", "Turma", "Turno"])
-                    .agg(
-                        Total_Faltas=("Data_Falta", "count"),
-                        Disciplinas=("Disciplina", lambda x: ", ".join(sorted(set(str(v) for v in x)))),
-                        Datas_Ausente=("Data_Falta", lambda x: ", ".join(sorted(set(str(v) for v in x))))
-                    )
-                    .reset_index()
-                    .sort_values(by="Total_Faltas", ascending=False)
-                )
-                st.dataframe(rank_f, use_container_width=True, hide_index=True)
-
-            with sub_f3:
-                resumo_t = (
-                    df_sub.groupby(["Turno", "Disciplina", "Turma", "Instrutor"])
-                    .agg(Total_Ausencias=("Nome", "count"), Jovens_Unicos=("Nome", "nunique"))
-                    .reset_index()
-                    .sort_values(by=["Turno", "Total_Ausencias"], ascending=[True, False])
-                )
-                st.dataframe(resumo_t, use_container_width=True, hide_index=True)
-
-# ==============================================================================
-# MÓDULO 2: ATIVIDADES MOODLE (COM FILTRO DE DISCIPLINAS + UPLOAD DE PLANILHAS)
-# ==============================================================================
 elif st.session_state["modulo_ativo"] == "MOODLE":
     st.markdown("""
     <div class="banner-modulo" style="background: linear-gradient(90deg, #0284c7 0%, #1d4ed8 100%); border-left: 8px solid #bae6fd;">
         <h2 style="margin:0;color:white;">🟦 MÓDULO: Acompanhamento de Atividades (Moodle Demà Digital)</h2>
         <p style="margin:4px 0 0 0;opacity:0.95;font-size:14px;">
-            Importação por Texto ou Planilhas (<b>.TSV, .CSV, .XLSX, .XLS</b>) e filtro por <b>Instrutor</b> e <b>Código da Disciplina</b> (Dia, Semana e Mês).
+            Importação por Texto ou Planilhas (<b>.TSV, .CSV, .XLSX, .XLS</b>) e filtragem instantânea por <b>Instrutor</b> e <b>Disciplina</b>.
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -783,9 +847,9 @@ elif st.session_state["modulo_ativo"] == "MOODLE":
             dt_moodle = st.date_input("📅 Data da Coleta:", value=date.today(), format="DD/MM/YYYY", key="dt_m_in")
         with cm2:
             disc_moodle_in = st.text_input(
-                "📘 Código da Disciplina / Módulo (ex: EMP_UB04, Bancário, ID 2007):",
+                "📘 Código da Disciplina / Módulo (ex: EMP_UB04, Bancário):",
                 value="",
-                placeholder="Se deixar em branco, identifica automaticamente pela Turma/Relatório",
+                placeholder="Se deixar em branco, identifica automaticamente pela Turma",
                 key="disc_m_in"
             )
 
@@ -821,7 +885,6 @@ elif st.session_state["modulo_ativo"] == "MOODLE":
                             if nome_m.endswith((".xlsx", ".xls")):
                                 df_m_arq, _ = converter_bytes_em_dataframe(arq_m.getvalue(), arq_m.name)
                                 if df_m_arq is not None and not df_m_arq.empty:
-                                    # Usa a primeira linha como cabeçalho se contiver 'Turma' ou 'Jovem'
                                     prim_linha = [str(x).strip() for x in df_m_arq.iloc[0].values]
                                     if any(k in " ".join(prim_linha).upper() for k in ["TURMA", "JOVEM", "ATIVIDADE"]):
                                         df_m_arq.columns = prim_linha
@@ -836,154 +899,53 @@ elif st.session_state["modulo_ativo"] == "MOODLE":
 
                 if novos_m:
                     df_lote = pd.concat(novos_m, ignore_index=True)
-                    dt_str = dt_moodle.strftime("%Y-%m-%d")
-                    df_lote["Data_Coleta"] = dt_str
+                    df_lote["Data_Coleta"] = dt_moodle.strftime("%Y-%m-%d")
                     if disc_moodle_in.strip():
                         df_lote["Disciplina"] = disc_moodle_in.strip()
-                    elif "Disciplina" not in df_lote.columns and "Turma" in df_lote.columns:
-                        df_lote["Disciplina"] = df_lote["Turma"].apply(lambda t: extrair_codigo_apc_turma(t) or "GERAL")
-
+                    df_lote = indexar_base_moodle(df_lote)
                     df_comb_m = pd.concat([st.session_state["base_moodle"], df_lote], ignore_index=True)
-                    df_comb_m = padronizar_base_moodle(df_comb_m)
                     df_comb_m = df_comb_m.drop_duplicates(
                         subset=["Data_Coleta", "Disciplina", "Turma", "Atividade", "Jovem"], keep="last"
                     ).reset_index(drop=True)
                     st.session_state["base_moodle"] = df_comb_m
-                    st.success("✅ Coleta do Moodle guardada com sucesso!")
+                    st.success("✅ Coleta do Moodle guardada e indexada!")
                     st.rerun()
         with bm2:
             if st.button("🗑️ Limpar Base do Moodle", use_container_width=True):
                 st.session_state["base_moodle"] = pd.DataFrame()
                 st.rerun()
 
-    if not st.session_state["base_moodle"].empty:
-        st.session_state["base_moodle"] = padronizar_base_moodle(st.session_state["base_moodle"])
-        df_m = st.session_state["base_moodle"]
+    renderizar_painel_moodle()
 
-        st.markdown("#### 🎯 Filtrar Atividades por Instrutor, Código da Disciplina e Período (Dia, Semana ou Mês)")
-        mc1, mc2, mc3, mc4, mc5, mc6 = st.columns([1.4, 1.4, 0.9, 1.1, 0.9, 1.2])
-        with mc1:
-            opcoes_inst_m = ["🌟 Todos os Instrutores"] + list(BANCO_TURMAS.keys()) + ["Não Mapeado / Outros"]
-            sel_inst_m = st.selectbox("👤 1. Instrutor(a):", opcoes_inst_m, index=0, key="m_inst")
-        with mc3:
-            modo_m = st.selectbox("🗓️ 3. Modo:", ["📅 Dia", "📆 Semana", "🗓️ Mês", "♾️ Tudo"], index=0, key="m_modo")
-        with mc4:
-            if modo_m == "📅 Dia":
-                op_pm = ["Todos os Dias"] + sorted(df_m["Data_Coleta"].astype(str).unique().tolist(), reverse=True)
-                sel_per_m = st.selectbox("Escolher Dia:", op_pm, key="m_dia")
-            elif modo_m == "📆 Semana":
-                op_pm = ["Todas as Semanas"] + sorted(df_m["Semana_Ano"].astype(str).unique().tolist(), reverse=True)
-                sel_per_m = st.selectbox("Escolher Semana:", op_pm, key="m_sem")
-            elif modo_m == "🗓️ Mês":
-                op_pm = ["Todos os Meses"] + sorted(df_m["Mes_Ano"].astype(str).unique().tolist(), reverse=True)
-                sel_per_m = st.selectbox("Escolher Mês:", op_pm, key="m_mes")
-            else:
-                sel_per_m = "Tudo"
-                st.text_input("Período:", value="Todo o Histórico", disabled=True, key="m_tudo")
-
-        df_m_sub = filtrar_df_por_instrutor(df_m, sel_inst_m)
-        if modo_m == "📅 Dia" and sel_per_m != "Todos os Dias":
-            df_m_sub = df_m_sub[df_m_sub["Data_Coleta"] == sel_per_m]
-        elif modo_m == "📆 Semana" and sel_per_m != "Todas as Semanas":
-            df_m_sub = df_m_sub[df_m_sub["Semana_Ano"] == sel_per_m]
-        elif modo_m == "🗓️ Mês" and sel_per_m != "Todos os Meses":
-            df_m_sub = df_m_sub[df_m_sub["Mes_Ano"] == sel_per_m]
-
-        with mc2:
-            disc_m_disp = sorted(df_m_sub["Disciplina"].dropna().astype(str).unique().tolist())
-            apc_m_disp = sorted(list({extrair_codigo_apc_turma(t) for t in df_m_sub["Turma"].dropna() if extrair_codigo_apc_turma(t)}))
-            opcoes_disc_m = ["Todas as Disciplinas"] + disc_m_disp + [f"Código Turma: {a}" for a in apc_m_disp if a not in disc_m_disp]
-            sel_disc_m = st.selectbox("📘 2. Código da Disciplina:", opcoes_disc_m, index=0, key="m_disc")
-
-        with mc5:
-            sel_turno_m = st.selectbox("🕒 4. Turno:", ["Todos (M + V)", "M - Manhã", "V - Tarde"], key="m_turno")
-        with mc6:
-            busca_m = st.text_input("🔍 5. Busca Livre:", placeholder="Jovem, Atividade, Disciplina...", key="m_busca")
-
-        if sel_disc_m != "Todas as Disciplinas":
-            if sel_disc_m.startswith("Código Turma: "):
-                apc_alvo_m = sel_disc_m.replace("Código Turma: ", "").strip()
-                df_m_sub = df_m_sub[df_m_sub["Turma"].astype(str).str.upper().str.contains(apc_alvo_m, na=False)]
-            else:
-                df_m_sub = df_m_sub[df_m_sub["Disciplina"] == sel_disc_m]
-
-        if sel_turno_m != "Todos (M + V)":
-            df_m_sub = df_m_sub[df_m_sub["Turno"] == sel_turno_m]
-        if busca_m:
-            df_m_sub = df_m_sub[
-                df_m_sub["Jovem"].astype(str).str.contains(busca_m, case=False, na=False) |
-                df_m_sub["Disciplina"].astype(str).str.contains(busca_m, case=False, na=False) |
-                df_m_sub["Turma"].astype(str).str.contains(busca_m, case=False, na=False) |
-                df_m_sub["Atividade"].astype(str).str.contains(busca_m, case=False, na=False)
-            ]
-
-        km1, km2, km3, km4, km5 = st.columns(5)
-        km1.metric("Pendências Listadas", len(df_m_sub))
-        km2.metric("Disciplinas no Filtro", df_m_sub["Disciplina"].nunique())
-        km3.metric("Turmas no Filtro", df_m_sub["Turma"].nunique())
-        km4.metric("☀️ Manhã (M)", len(df_m_sub[df_m_sub["Turno"] == "M - Manhã"]))
-        km5.metric("🌤️ Tarde (V)", len(df_m_sub[df_m_sub["Turno"] == "V - Tarde"]))
-
-        sub_m1, sub_m2 = st.tabs([
-            "📋 1. PENDÊNCIAS POR INSTRUTOR E DISCIPLINA",
-            "📈 2. COMPARATIVO SEMANAL / MENSAL (QUEM REGULARIZOU)"
-        ])
-        with sub_m1:
-            cols_m_ordem = ["Data_Coleta", "Instrutor", "Disciplina", "Turno", "Turma", "Atividade", "Status", "Jovem", "Email_Enviado"]
-            cols_m_pres = [c for c in cols_m_ordem if c in df_m_sub.columns]
-            st.dataframe(df_m_sub[cols_m_pres], use_container_width=True, hide_index=True)
-        with sub_m2:
-            datas_m = sorted(df_m["Data_Coleta"].astype(str).unique().tolist())
-            if len(datas_m) < 2:
-                st.info("Registe pelo menos 2 datas diferentes de coleta para comparar quem regularizou na semana.")
-            else:
-                cd1, cd2 = st.columns(2)
-                with cd1:
-                    d_ant = st.selectbox("1ª Coleta (Cobrança Inicial):", datas_m, index=0)
-                with cd2:
-                    d_nov = st.selectbox("2ª Coleta (Conferência):", datas_m, index=len(datas_m)-1)
-                df_a = filtrar_df_por_instrutor(df_m[df_m["Data_Coleta"] == d_ant], sel_inst_m)
-                df_n = filtrar_df_por_instrutor(df_m[df_m["Data_Coleta"] == d_nov], sel_inst_m)
-                comp = pd.merge(df_a, df_n, on=["Turma", "Atividade", "Jovem"], how="outer", indicator=True)
-                st.metric("✅ Jovens que Regularizaram após o E-mail", len(comp[comp["_merge"] == "left_only"]))
-                st.dataframe(comp[comp["_merge"] == "left_only"][["Turma", "Atividade", "Jovem"]], use_container_width=True, hide_index=True)
-
-# ==============================================================================
-# MÓDULO 3: VISÃO 360º (CRUZAMENTO FALTAS + MOODLE)
-# ==============================================================================
 elif st.session_state["modulo_ativo"] == "VISAO360":
     st.markdown("""
     <div class="banner-modulo" style="background: linear-gradient(90deg, #059669 0%, #047857 100%); border-left: 8px solid #a7f3d0;">
-        <h2 style="margin:0;color:white;">🟩 MÓDULO: Visão 360º do Jovem (Cruzamento Faltas + Atividades)</h2>
+        <h2 style="margin:0;color:white;">🟩 MÓDULO: Visão 360º do Jovem (Cruzamento Instantâneo)</h2>
         <p style="margin:4px 0 0 0;opacity:0.95;font-size:14px;">
-            Pesquise qualquer jovem, matrícula, disciplina ou turma para cruzar faltas e atividades pendentes.
+            Busca pré-indexada por Nome, Matrícula, Disciplina ou Turma.
         </p>
     </div>
     """, unsafe_allow_html=True)
 
-    termo_360 = st.text_input("🔍 Digite o Nome do Jovem, Matrícula, Código da Disciplina ou Turma:")
-    if termo_360:
-        c360_1, c360_2 = st.columns(2)
-        with c360_1:
-            st.markdown("### 🟧 Faltas Registadas")
-            if not st.session_state["base_faltas"].empty:
-                df_f = padronizar_base_faltas(st.session_state["base_faltas"])
-                res_f = df_f[
-                    df_f["Nome"].astype(str).str.contains(termo_360, case=False, na=False) |
-                    df_f["Matricula"].astype(str).str.contains(termo_360, case=False, na=False) |
-                    df_f["Disciplina"].astype(str).str.contains(termo_360, case=False, na=False) |
-                    df_f["Turma"].astype(str).str.contains(termo_360, case=False, na=False)
-                ]
-                cols_360_f = ["Data_Falta", "Matricula", "Nome", "Cidade", "Estado", "Disciplina", "Turma", "Turno"]
-                st.dataframe(res_f[[c for c in cols_360_f if c in res_f.columns]], use_container_width=True, hide_index=True)
-        with c360_2:
-            st.markdown("### 🟦 Atividades Pendentes (Moodle)")
-            if not st.session_state["base_moodle"].empty:
-                df_m = padronizar_base_moodle(st.session_state["base_moodle"])
-                res_m = df_m[
-                    df_m["Jovem"].astype(str).str.contains(termo_360, case=False, na=False) |
-                    df_m["Disciplina"].astype(str).str.contains(termo_360, case=False, na=False) |
-                    df_m["Turma"].astype(str).str.contains(termo_360, case=False, na=False)
-                ]
-                cols_360_m = ["Data_Coleta", "Disciplina", "Turno", "Turma", "Jovem", "Atividade"]
-                st.dataframe(res_m[[c for c in cols_360_m if c in res_m.columns]], use_container_width=True, hide_index=True)
+    @st.fragment
+    def renderizar_busca_360():
+        termo_360 = st.text_input("🔍 Digite o Nome do Jovem, Matrícula, Código da Disciplina ou Turma:")
+        if termo_360:
+            t_up = termo_360.strip().upper()
+            c360_1, c360_2 = st.columns(2)
+            with c360_1:
+                st.markdown("### 🟧 Faltas Registadas")
+                df_f = st.session_state["base_faltas"]
+                if not df_f.empty:
+                    res_f = df_f[df_f["_busca_idx"].str.contains(t_up, regex=False, na=False)]
+                    cols_360_f = ["Data_Falta", "Matricula", "Nome", "Cidade", "Estado", "Disciplina", "Turma", "Turno"]
+                    st.dataframe(res_f[[c for c in cols_360_f if c in res_f.columns]], use_container_width=True, hide_index=True)
+            with c360_2:
+                st.markdown("### 🟦 Atividades Pendentes (Moodle)")
+                df_m = st.session_state["base_moodle"]
+                if not df_m.empty:
+                    res_m = df_m[df_m["_busca_idx"].str.contains(t_up, regex=False, na=False)]
+                    cols_360_m = ["Data_Coleta", "Disciplina", "Turno", "Turma", "Jovem", "Atividade"]
+                    st.dataframe(res_m[[c for c in cols_360_m if c in res_m.columns]], use_container_width=True, hide_index=True)
+
+    renderizar_busca_360()
