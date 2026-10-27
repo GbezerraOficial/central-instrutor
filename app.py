@@ -2,18 +2,12 @@ import streamlit as st
 import pandas as pd
 import io
 import re
-import sys
-import subprocess
+import csv
 import zipfile
 import hmac
+from html.parser import HTMLParser
+import xml.etree.ElementTree as ET
 from datetime import datetime, date
-
-# Garante que as bibliotecas de leitura de Excel (.xls antigo e .xlsx novo) estejam instaladas
-for pkg in ["xlrd", "openpyxl", "lxml"]:
-    try:
-        __import__(pkg)
-    except ImportError:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", pkg])
 
 st.set_page_config(
     page_title="Central do Instrutor - Painel Unificado",
@@ -27,7 +21,7 @@ st.set_page_config(
 # ==============================================================================
 st.markdown("""
 <style>
-    /* Destaque nos botões do Menu Principal */
+    /* Botões Principais de Navegação */
     div.stButton > button {
         border-radius: 10px !important;
         font-weight: 700 !important;
@@ -41,7 +35,7 @@ st.markdown("""
         box-shadow: 0 6px 16px rgba(56, 189, 248, 0.35) !important;
         border-color: #38bdf8 !important;
     }
-    /* Destaque forte nas Abas Internas (Submenus em formato de Pílulas Grandes) */
+    /* Abas Internas (Submenus em destaque) */
     button[data-baseweb="tab"] {
         background-color: #1e293b !important;
         color: #cbd5e1 !important;
@@ -59,7 +53,7 @@ st.markdown("""
         border: 2px solid #38bdf8 !important;
         box-shadow: 0 -4px 12px rgba(56, 189, 248, 0.3) !important;
     }
-    /* Cartões de Métricas Destacados */
+    /* Cartões de Métricas */
     div[data-testid="stMetric"] {
         background-color: #0f172a;
         border: 1px solid #334155;
@@ -67,7 +61,6 @@ st.markdown("""
         padding: 12px 16px;
         border-radius: 10px;
     }
-    /* Cabeçalhos de Módulo */
     .banner-modulo {
         padding: 16px 22px;
         border-radius: 12px;
@@ -137,9 +130,9 @@ def identificar_turno(cod_turma, nome_arq=""):
     if "V." in c:
         return "V - Tarde"
     n = str(nome_arq).upper()
-    if "_M." in n or "/MAT/" in n or "\\MAT\\" in n:
+    if "_M." in n or "/MAT/" in n or "\\MAT\\" in n or "MAT" in n:
         return "M - Manhã"
-    if "_V." in n or "/VES/" in n or "\\VES\\" in n:
+    if "_V." in n or "/VES/" in n or "\\VES\\" in n or "VES" in n:
         return "V - Tarde"
     return "Outro"
 
@@ -162,53 +155,115 @@ def extrair_data_nome_arquivo(nome_arq, data_fallback):
     return data_fallback
 
 # ==============================================================================
-# 2. LEITOR UNIVERSAL DE PLANILHAS DE FALTAS (.XLS, .XLSX, HTML, XML, CSV, ZIP)
+# 2. LEITOR UNIVERSAL NATIVO (SEM LXML / SEM SUBPROCESS)
 # ==============================================================================
-def converter_bytes_em_dataframe(bytes_arq, nome_arq):
-    """Tenta todos os motores possíveis para abrir qualquer arquivo .xls ou .xlsx."""
-    if len(bytes_arq) < 100 or nome_arq.startswith("~$"):
-        return None, "vazio"
+class ExtratorTabelaHTML(HTMLParser):
+    """Lê ficheiros .xls que na verdade são tabelas HTML sem precisar de lxml."""
+    def __init__(self):
+        super().__init__()
+        self.linhas = []
+        self.linha_atual = []
+        self.em_celula = False
+        self.texto_celula = []
 
-    # 1. Tenta motores nativos do Excel (xlrd para .xls e openpyxl para .xlsx)
-    for eng in ["xlrd", "openpyxl"]:
-        try:
-            df = pd.read_excel(io.BytesIO(bytes_arq), header=None, engine=eng)
-            if df is not None and not df.empty:
-                return df, eng
-        except Exception:
-            pass
+    def handle_starttag(self, tag, attrs):
+        t = tag.lower()
+        if t == "tr":
+            self.linha_atual = []
+        elif t in ("td", "th"):
+            self.em_celula = True
+            self.texto_celula = []
 
-    # 2. Tenta ler caso o .xls seja uma tabela HTML exportada pelo sistema
+    def handle_endtag(self, tag):
+        t = tag.lower()
+        if t in ("td", "th") and self.em_celula:
+            self.linha_atual.append("".join(self.texto_celula).strip())
+            self.em_celula = False
+        elif t == "tr" and self.linha_atual:
+            if any(c != "" for c in self.linha_atual):
+                self.linhas.append(self.linha_atual)
+
+    def handle_data(self, data):
+        if self.em_celula:
+            self.texto_celula.append(data)
+
+def ler_xml_excel_2003(texto_xml):
+    """Lê ficheiros .xls guardados no formato XML Spreadsheet 2003."""
     try:
-        dfs_html = pd.read_html(io.BytesIO(bytes_arq))
-        if dfs_html and not dfs_html[0].empty:
-            return dfs_html[0], "html"
+        root = ET.fromstring(texto_xml)
+        linhas = []
+        for elem in root.iter():
+            if elem.tag.endswith("Row"):
+                linha = []
+                for cell in elem:
+                    if cell.tag.endswith("Cell"):
+                        val = "".join(cell.itertext()).strip()
+                        linha.append(val)
+                if any(c != "" for c in linha):
+                    linhas.append(linha)
+        if linhas:
+            return pd.DataFrame(linhas)
     except Exception:
         pass
+    return None
 
-    # 3. Tenta ler caso o .xls seja um arquivo de texto separado por TAB, ';' ou ','
-    for enc in ["utf-8", "latin-1", "cp1252", "utf-16"]:
+def converter_bytes_em_dataframe(bytes_arq, nome_arq):
+    """Abre qualquer ficheiro .xls ou .xlsx (Binário, OpenXML, HTML, XML ou Texto/CSV)."""
+    if not bytes_arq or len(bytes_arq) < 60 or nome_arq.startswith("~$"):
+        return None, "vazio"
+
+    # 1. Tenta motores Excel (xlrd e openpyxl) - lê todas as abas até achar dados
+    for eng in ["xlrd", "openpyxl"]:
         try:
-            texto = bytes_arq.decode(enc)
-            if len(texto.strip()) < 10:
-                return None, "vazio"
-            for sep in ["\t", ";", ","]:
-                if sep in texto:
-                    df = pd.read_csv(io.StringIO(texto), sep=sep, header=None, on_bad_lines="skip")
-                    if df is not None and df.shape[1] >= 4:
-                        return df, f"texto ({enc})"
+            xls = pd.ExcelFile(io.BytesIO(bytes_arq), engine=eng)
+            for sheet in xls.sheet_names:
+                df = pd.read_excel(xls, sheet_name=sheet, header=None)
+                if df is not None and not df.dropna(how="all").empty:
+                    return df, f"excel ({eng})"
         except Exception:
             pass
 
-    return None, "vazio_ou_810b"
+    # 2. Tenta descodificar como Texto / HTML / XML / CSV / TSV (UTF-8, UTF-16, Latin-1)
+    for enc in ["utf-8-sig", "utf-16", "latin-1", "cp1252"]:
+        try:
+            texto = bytes_arq.decode(enc, errors="ignore").strip()
+            if not texto:
+                continue
+
+            # Se for HTML disfarçado de .xls
+            if "<table" in texto.lower() or "<tr" in texto.lower():
+                parser = ExtratorTabelaHTML()
+                parser.feed(texto)
+                if parser.linhas:
+                    return pd.DataFrame(parser.linhas), "html_xls"
+
+            # Se for XML Excel 2003 disfarçado de .xls
+            if "<workbook" in texto.lower() or "<row" in texto.lower():
+                df_xml = ler_xml_excel_2003(texto)
+                if df_xml is not None and not df_xml.empty:
+                    return df_xml, "xml_xls"
+
+            # Se for TSV / CSV disfarçado de .xls
+            linhas_txt = [l for l in texto.splitlines() if l.strip()]
+            if linhas_txt:
+                for sep in ["\t", ";", ","]:
+                    if sep in linhas_txt[0] or (len(linhas_txt) > 1 and sep in linhas_txt[1]):
+                        lidas = list(csv.reader(linhas_txt, delimiter=sep))
+                        lidas = [r for r in lidas if any(c.strip() for c in r)]
+                        if lidas and max(len(r) for r in lidas) >= 2:
+                            return pd.DataFrame(lidas), f"csv ({sep})"
+        except Exception:
+            pass
+
+    return None, "sem_dados"
 
 def extrair_alunos_do_dataframe(df_raw, nome_arq, data_padrao_str):
-    """
-    Reconhece cada jovem linha por linha analisando as células preenchidas,
-    funcionando tanto para planilhas de 12 colunas (com colunas vazias intercaladas)
-    quanto para planilhas compactas de 7 ou 8 colunas.
-    """
+    """Extrai os jovens ausentes de qualquer estrutura de planilha."""
     if df_raw is None or df_raw.empty:
+        return pd.DataFrame()
+
+    df_clean = df_raw.dropna(how="all").dropna(axis=1, how="all")
+    if df_clean.empty:
         return pd.DataFrame()
 
     nome_limpo = nome_arq.replace("\\", "/").split("/")[-1]
@@ -217,53 +272,62 @@ def extrair_alunos_do_dataframe(df_raw, nome_arq, data_padrao_str):
 
     registros = []
 
-    for _, row in df_raw.iterrows():
-        # Pega todos os valores não vazios da linha na ordem em que aparecem
-        valores = [str(v).strip() for v in row.values if pd.notna(v) and str(v).strip() != "" and str(v).strip().lower() != "nan"]
-        if len(valores) < 3:
+    for _, row in df_clean.iterrows():
+        valores = [str(v).strip() for v in row.values if pd.notna(v) and str(v).strip() not in ("", "nan", "None")]
+        if len(valores) < 2:
             continue
 
-        linha_concat = " ".join(valores).upper()
-        # Ignora linhas de cabeçalho caso existam
-        if "CODTURMA" in linha_concat or ("NOME" in linha_concat and "EMAIL" in linha_concat):
+        linha_upper = " ".join(valores).upper()
+        # Ignora linhas que são apenas cabeçalho
+        if linha_upper.startswith("ID ") or ("NOME" in linha_upper and "TURMA" in linha_upper and len(valores) <= 10 and "@" not in linha_upper):
             continue
 
-        # Busca inteligente por padrão dentro das células da linha
-        email = next((v for v in valores if "@" in v), "")
-        turma = next((v for v in valores if re.search(r"(APC|\.\d+[MV]\.)", v, re.I)), "")
+        email = next((v for v in valores if "@" in v and "." in v), "")
+        turma = next((v for v in valores if re.search(r"(APC|\d+\.[A-Z0-9]+\.\d+[MV])", v, re.I)), "")
 
-        # Se não achou turma pelo padrão APC, mas a linha tem 7+ elementos ou a coluna J (índice 9) existe
-        if not turma:
-            if 9 < len(row) and pd.notna(row.iloc[9]) and str(row.iloc[9]).strip():
-                turma = str(row.iloc[9]).strip()
-            elif len(valores) >= 7:
-                turma = valores[6]
+        # Posicionamento inteligente caso a planilha tenha todas as células ou menos colunas
+        id_jovem = ""
+        nome_jovem = ""
+        modulo_sigla = modulo_padrao_arq
+        cidade_uf = ""
+        encontro = ""
 
-        if not turma and not email:
-            continue
-
-        id_jovem = valores[0] if len(valores) > 0 else ""
-        nome_jovem = valores[1] if len(valores) > 1 else ""
-
-        # Se o arquivo veio com as 8 informações clássicas (ID, Nome, Email, Módulo, Cidade, Encontro, Turma, Data)
-        modulo_sigla = valores[3] if len(valores) > 3 else modulo_padrao_arq
-        cidade_uf = valores[4] if len(valores) > 4 else ""
-        encontro = valores[5] if len(valores) > 5 else ""
-
-        # Ajuste fino caso o e-mail esteja na posição 2
         if email and email in valores:
-            idx_email = valores.index(email)
-            if idx_email >= 1:
-                nome_jovem = valores[idx_email - 1]
-            if idx_email >= 2:
-                id_jovem = valores[idx_email - 2]
-            restantes = [v for v in valores[idx_email + 1:] if v != turma]
+            idx_em = valores.index(email)
+            if idx_em >= 1:
+                nome_jovem = valores[idx_em - 1]
+            if idx_em >= 2:
+                id_jovem = valores[idx_em - 2]
+            apos_email = [v for v in valores[idx_em + 1:] if v != turma]
+            if len(apos_email) >= 1:
+                modulo_sigla = apos_email[0]
+            if len(apos_email) >= 2:
+                cidade_uf = apos_email[1]
+            if len(apos_email) >= 3:
+                encontro = apos_email[2]
+        else:
+            # Fallback para planilhas que só têm ID e Nome (ou Nome e Turma) sem e-mail
+            if valores[0].replace(".", "").isdigit() and len(valores) >= 2:
+                id_jovem = valores[0]
+                nome_jovem = valores[1]
+                restantes = [v for v in valores[2:] if v != turma]
+            else:
+                nome_jovem = valores[0]
+                restantes = [v for v in valores[1:] if v != turma]
+
             if len(restantes) >= 1:
                 modulo_sigla = restantes[0]
             if len(restantes) >= 2:
                 cidade_uf = restantes[1]
             if len(restantes) >= 3:
                 encontro = restantes[2]
+
+        if not turma:
+            turma = modulo_sigla
+
+        # Evita adicionar títulos soltos de 1 palavra
+        if len(nome_jovem) < 3:
+            continue
 
         registros.append({
             "Lancado_RM": False,
@@ -285,42 +349,44 @@ def extrair_alunos_do_dataframe(df_raw, nome_arq, data_padrao_str):
     return pd.DataFrame(registros)
 
 def processar_arquivos_enviados(lista_arquivos, data_padrao_str):
-    """Varre arquivos soltos (.xls, .xlsx) e pacotes .zip (inclusive subpastas MAT e VES)."""
     dfs_extraidos = []
-    stats = {"total_arquivos": 0, "com_faltas": 0, "em_branco": 0, "erros": []}
+    stats = {"total_arquivos": 0, "com_faltas": 0, "em_branco": 0, "detalhes": []}
 
     def processar_item_bytes(b_arq, nome_item):
         stats["total_arquivos"] += 1
-        df_bruto, status = converter_bytes_em_dataframe(b_arq, nome_item)
+        nome_curto = nome_item.replace("\\", "/").split("/")[-1]
+        df_bruto, formato = converter_bytes_em_dataframe(b_arq, nome_curto)
         if df_bruto is not None:
             df_limpo = extrair_alunos_do_dataframe(df_bruto, nome_item, data_padrao_str)
             if not df_limpo.empty:
                 dfs_extraidos.append(df_limpo)
                 stats["com_faltas"] += 1
+                stats["detalhes"].append(f"✅ {nome_curto}: {len(df_limpo)} jovens ({formato})")
             else:
                 stats["em_branco"] += 1
+                stats["detalhes"].append(f"⚪ {nome_curto}: Sem alunos ({len(b_arq)} bytes)")
         else:
             stats["em_branco"] += 1
+            stats["detalhes"].append(f"⚪ {nome_curto}: Ficheiro vazio ({len(b_arq)} bytes)")
 
     def abrir_zip_recursivo(bytes_zip):
-        try:
-            with zipfile.ZipFile(io.BytesIO(bytes_zip), "r") as z:
-                for item in z.namelist():
-                    if item.endswith("/") or "__MACOSX" in item or item.split("/")[-1].startswith("~$"):
-                        continue
-                    item_lower = item.lower()
-                    if item_lower.endswith(".zip"):
-                        abrir_zip_recursivo(z.read(item))
-                    elif item_lower.endswith((".xls", ".xlsx", ".csv", ".tsv")):
-                        processar_item_bytes(z.read(item), item)
-        except Exception as e:
-            stats["erros"].append(str(e))
+        with zipfile.ZipFile(io.BytesIO(bytes_zip), "r") as z:
+            for item in z.namelist():
+                if item.endswith("/") or "__MACOSX" in item or item.split("/")[-1].startswith("~$"):
+                    continue
+                item_lower = item.lower()
+                if item_lower.endswith(".zip"):
+                    abrir_zip_recursivo(z.read(item))
+                elif item_lower.endswith((".xls", ".xlsx", ".csv", ".tsv")):
+                    processar_item_bytes(z.read(item), item)
 
     for arq in lista_arquivos:
-        nome_lower = arq.name.lower()
         conteudo = arq.getvalue()
-        if nome_lower.endswith(".zip"):
-            abrir_zip_recursivo(conteudo)
+        if arq.name.lower().endswith(".zip"):
+            try:
+                abrir_zip_recursivo(conteudo)
+            except Exception as e:
+                stats["detalhes"].append(f"❌ Erro ao abrir ZIP {arq.name}: {e}")
         else:
             processar_item_bytes(conteudo, arq.name)
 
@@ -335,7 +401,7 @@ def autenticar():
     if st.session_state.get("logado", False):
         return True
     st.title("🔒 Central de Acompanhamento Unificado")
-    senha_dig = st.text_input("Digite sua senha de acesso:", type="password")
+    senha_dig = st.text_input("Digite a sua senha de acesso:", type="password")
     if senha_dig:
         if hmac.compare_digest(senha_dig, str(senha_sistema)):
             st.session_state["logado"] = True
@@ -360,7 +426,6 @@ if "modulo_ativo" not in st.session_state:
 with st.sidebar:
     st.markdown("### 🎯 FILTROS DE VISUALIZAÇÃO")
     opcoes_inst = ["🌟 Todos os Instrutores (Visão Geral)"] + list(BANCO_TURMAS.keys()) + ["Outro Instrutor / Geral"]
-    # Inicia em "Todos os Instrutores" para nunca esconder planilhas de teste!
     filtro_global_inst = st.selectbox("👤 Filtrar por Instrutor(a):", opcoes_inst, index=0)
     filtro_global_turno = st.selectbox("🕒 Filtrar por Turno (M / V):", ["Todos (M + V)", "M - Manhã", "V - Tarde"])
 
@@ -393,7 +458,7 @@ with st.sidebar:
         )
 
 # ==============================================================================
-# 5. MENU PRINCIPAL COM ALTO DESTAQUE VISUAL (CARDS DE NAVEGAÇÃO)
+# 5. MENU PRINCIPAL COM ALTO DESTAQUE VISUAL
 # ==============================================================================
 st.markdown("## 🧭 Menu Principal de Módulos")
 qtd_faltas = len(st.session_state["base_faltas"])
@@ -401,11 +466,11 @@ qtd_moodle = len(st.session_state["base_moodle"])
 
 nav1, nav2, nav3 = st.columns(3)
 with nav1:
-    if st.button(f"🟧 1. CONTROLE DE FALTAS ({qtd_faltas} registros)", use_container_width=True, type="primary" if st.session_state["modulo_ativo"] == "FALTAS" else "secondary"):
+    if st.button(f"🟧 1. CONTROLE DE FALTAS ({qtd_faltas} registos)", use_container_width=True, type="primary" if st.session_state["modulo_ativo"] == "FALTAS" else "secondary"):
         st.session_state["modulo_ativo"] = "FALTAS"
         st.rerun()
 with nav2:
-    if st.button(f"🟦 2. ATIVIDADES MOODLE ({qtd_moodle} registros)", use_container_width=True, type="primary" if st.session_state["modulo_ativo"] == "MOODLE" else "secondary"):
+    if st.button(f"🟦 2. ATIVIDADES MOODLE ({qtd_moodle} registos)", use_container_width=True, type="primary" if st.session_state["modulo_ativo"] == "MOODLE" else "secondary"):
         st.session_state["modulo_ativo"] = "MOODLE"
         st.rerun()
 with nav3:
@@ -423,33 +488,33 @@ if st.session_state["modulo_ativo"] == "FALTAS":
     <div class="banner-modulo" style="background: linear-gradient(90deg, #ea580c 0%, #c2410c 100%); border-left: 8px solid #fed7aa;">
         <h2 style="margin:0;color:white;">🟧 MÓDULO: Controle de Faltas (SharePoint ➔ Diário de Classe RM)</h2>
         <p style="margin:4px 0 0 0;opacity:0.95;font-size:14px;">
-            reconhecimento automático de arquivos <b>.ZIP</b> (pastas MAT e VES inteiras) e planilhas <b>.XLS / .XLSX</b>.
+            Leitura imediata de pacotes <b>.ZIP</b> (pastas MAT e VES) e folhas de cálculo <b>.XLS / .XLSX</b>.
         </p>
     </div>
     """, unsafe_allow_html=True)
 
-    with st.expander("📥 IMPORTAR PLANILHAS OU PACOTE .ZIP DE FALTAS (Processamento Automático ao Soltar)", expanded=True):
+    with st.expander("📥 IMPORTAR FOLHAS DE CÁLCULO OU PACOTE .ZIP DE FALTAS", expanded=True):
         c_dt, c_up = st.columns([1, 2.5])
         with c_dt:
-            data_ref = st.date_input("📅 Data padrão (se não houver no nome):", value=date.today(), format="DD/MM/YYYY")
-            if st.button("🗑️ Limpar Todas as Faltas", use_container_width=True):
+            data_ref = st.date_input("📅 Data padrão:", value=date.today(), format="DD/MM/YYYY")
+            if st.button("🗑️ Limpar Base de Faltas", use_container_width=True):
                 st.session_state["base_faltas"] = pd.DataFrame()
                 st.session_state["ultimos_arquivos_lidos"] = []
+                st.session_state.pop("ultimo_diagnostico", None)
                 st.rerun()
 
         with c_up:
             arquivos_up = st.file_uploader(
-                "Solte aqui o arquivo .ZIP (da pasta do dia ou MAT/VES) OU várias planilhas (.xls / .xlsx):",
+                "Arraste aqui o ficheiro .ZIP ou as folhas de cálculo (.xls / .xlsx):",
                 type=["zip", "xls", "xlsx", "csv", "tsv"],
                 accept_multiple_files=True,
                 key="uploader_faltas_auto"
             )
 
-        # PROCESSAMENTO AUTOMÁTICO ASSIM QUE O ARQUIVO É SOLTO
         if arquivos_up:
             assinatura_atual = [f"{a.name}_{a.size}" for a in arquivos_up]
             if st.session_state.get("ultimos_arquivos_lidos") != assinatura_atual:
-                with st.spinner("Lendo planilhas e extraindo jovens ausentes..."):
+                with st.spinner("A analisar ficheiros e a extrair jovens ausentes..."):
                     df_novos, stats = processar_arquivos_enviados(arquivos_up, data_ref.strftime("%Y-%m-%d"))
                     st.session_state["ultimos_arquivos_lidos"] = assinatura_atual
                     st.session_state["ultimo_diagnostico"] = stats
@@ -462,10 +527,12 @@ if st.session_state["modulo_ativo"] == "FALTAS":
         if "ultimo_diagnostico" in st.session_state:
             st_diag = st.session_state["ultimo_diagnostico"]
             st.info(
-                f"🔍 **Diagnóstico da Leitura:** Foram analisados **{st_diag['total_arquivos']}** arquivos "
-                f"| ✅ **{st_diag['com_faltas']}** planilhas continham alunos ausentes "
-                f"| ⚪ **{st_diag['em_branco']}** planilhas estavam sem alunos (em branco / 810 bytes)."
+                f"🔍 **Diagnóstico da Leitura:** **{st_diag['total_arquivos']}** ficheiros processados "
+                f"| ✅ **{st_diag['com_faltas']}** continham jovens ausentes "
+                f"| ⚪ **{st_diag['em_branco']}** estavam em branco (810 bytes)."
             )
+            with st.expander("🔎 Ver detalhe ficheiro a ficheiro"):
+                st.write("\n".join(st_diag["detalhes"]))
 
     df_f_total = st.session_state["base_faltas"].copy()
 
@@ -476,15 +543,12 @@ if st.session_state["modulo_ativo"] == "FALTAS":
         if filtro_global_turno != "Todos (M + V)":
             df_f = df_f[df_f["Turno"] == filtro_global_turno]
 
-        # Alerta amigável caso o filtro do instrutor oculte os dados da planilha enviada
         if df_f.empty and not df_f_total.empty:
             st.warning(
-                f"⚠️ As planilhas foram lidas com sucesso (**{len(df_f_total)} faltas no total**), "
-                f"mas nenhuma delas pertence ao filtro **{filtro_global_inst} / {filtro_global_turno}**. "
-                f"Mude o filtro na barra lateral esquerda para **'🌟 Todos os Instrutores'** para vê-las!"
+                f"⚠️ Foram lidas **{len(df_f_total)} faltas**, mas pertencem a outros instrutores/turnos. "
+                f"Altere o filtro na barra lateral esquerda para **'🌟 Todos os Instrutores'**!"
             )
         else:
-            # SUBMENUS DESTACADOS DA ETAPA 2
             sub_f1, sub_f2, sub_f3 = st.tabs([
                 "📝 1. LANÇAR FALTAS NO RM (POR TURMA)",
                 "🚨 2. RANKING SEMANAL / MENSAL DE FALTAS",
@@ -505,7 +569,7 @@ if st.session_state["modulo_ativo"] == "FALTAS":
                         df_sub = df_sub[df_sub["Unidade"] == sel_unid]
                     sel_turma = st.selectbox("🏫 Filtrar Turma:", ["Todas"] + sorted(df_sub["Turma"].unique().tolist()))
                 with f_c4:
-                    busca_f = st.text_input("🔍 Buscar Nome ou ID do Jovem:")
+                    busca_f = st.text_input("🔍 Procurar Nome ou ID do Jovem:")
 
                 if sel_turma != "Todas":
                     df_sub = df_sub[df_sub["Turma"] == sel_turma]
@@ -531,7 +595,6 @@ if st.session_state["modulo_ativo"] == "FALTAS":
                 )
 
             with sub_f2:
-                st.markdown("#### 🚨 Jovens com Maior Acúmulo de Faltas (Comparativo Semanal e Mensal)")
                 rank_f = (
                     df_f.groupby(["ID_Jovem", "Jovem", "Email", "Turma", "Turno", "Instrutor", "Unidade"])
                     .agg(
@@ -547,7 +610,7 @@ if st.session_state["modulo_ativo"] == "FALTAS":
             with sub_f3:
                 g1, g2 = st.columns(2)
                 with g1:
-                    st.markdown("**🏢 Faltas por Unidade (Bojador, Áurea, Cerrado, Missões):**")
+                    st.markdown("**🏢 Faltas por Unidade:**")
                     st.bar_chart(df_f.groupby("Unidade")["Jovem"].count())
                 with g2:
                     st.markdown("**🕒 Faltas por Turno (M vs V):**")
@@ -561,7 +624,7 @@ elif st.session_state["modulo_ativo"] == "MOODLE":
     <div class="banner-modulo" style="background: linear-gradient(90deg, #0284c7 0%, #1d4ed8 100%); border-left: 8px solid #bae6fd;">
         <h2 style="margin:0;color:white;">🟦 MÓDULO: Acompanhamento de Atividades (Moodle Demà Digital)</h2>
         <p style="margin:4px 0 0 0;opacity:0.95;font-size:14px;">
-            Consolidação das 7 atividades, controle de e-mails disparados e comparativo semanal/mensal.
+            Consolidação das 7 atividades, controlo de e-mails enviados e comparativo semanal/mensal.
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -574,7 +637,7 @@ elif st.session_state["modulo_ativo"] == "MOODLE":
             enc_moodle = st.text_input("📘 Módulo / Encontro:", value="Encontro da Semana")
 
         txt_m = st.text_area("Cole (Ctrl+V) o relatório copiado pela Extensão do Moodle:", height=110)
-        if st.button("➕ Salvar Coleta no Painel", type="primary"):
+        if st.button("➕ Guardar Coleta no Painel", type="primary"):
             if txt_m.strip():
                 df_lote = pd.read_csv(io.StringIO(txt_m.strip()), sep="\t")
                 dt_str = dt_moodle.strftime("%Y-%m-%d")
@@ -587,7 +650,7 @@ elif st.session_state["modulo_ativo"] == "MOODLE":
                 st.session_state["base_moodle"] = pd.concat([st.session_state["base_moodle"], df_lote], ignore_index=True).drop_duplicates(
                     subset=["Data_Coleta", "Turma", "Atividade", "Jovem"], keep="last"
                 )
-                st.success("✅ Coleta registrada!")
+                st.success("✅ Coleta registada!")
                 st.rerun()
 
     df_m = st.session_state["base_moodle"].copy()
@@ -606,7 +669,7 @@ elif st.session_state["modulo_ativo"] == "MOODLE":
         with sub_m2:
             datas_m = sorted(df_m["Data_Coleta"].astype(str).unique().tolist())
             if len(datas_m) < 2:
-                st.info("Registre pelo menos 2 datas diferentes de coleta para comparar quem regularizou na semana.")
+                st.info("Registe pelo menos 2 datas diferentes de coleta para comparar quem regularizou na semana.")
             else:
                 d_ant = st.selectbox("Coleta Inicial:", datas_m, index=0)
                 d_nov = st.selectbox("Coleta Recente:", datas_m, index=len(datas_m)-1)
@@ -624,7 +687,7 @@ elif st.session_state["modulo_ativo"] == "VISAO360":
     <div class="banner-modulo" style="background: linear-gradient(90deg, #059669 0%, #047857 100%); border-left: 8px solid #a7f3d0;">
         <h2 style="margin:0;color:white;">🟩 MÓDULO: Visão 360º do Jovem (Cruzamento Faltas + Atividades)</h2>
         <p style="margin:4px 0 0 0;opacity:0.95;font-size:14px;">
-            Pesquise qualquer jovem ou turma para ver simultaneamente suas faltas no encontro e atividades pendentes no Moodle.
+            Pesquise qualquer jovem ou turma para ver em simultâneo as suas faltas e atividades pendentes no Moodle.
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -633,7 +696,7 @@ elif st.session_state["modulo_ativo"] == "VISAO360":
     if termo_360:
         c360_1, c360_2 = st.columns(2)
         with c360_1:
-            st.markdown("### 🟧 Faltas Registradas")
+            st.markdown("### 🟧 Faltas Registadas")
             df_f = st.session_state["base_faltas"]
             if not df_f.empty:
                 res_f = df_f[df_f["Jovem"].str.contains(termo_360, case=False, na=False) | df_f["Turma"].str.contains(termo_360, case=False, na=False)]
