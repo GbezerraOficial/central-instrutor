@@ -161,10 +161,56 @@ def calcular_semana_vetorizado(serie_datas):
     iso = datas_dt.dt.isocalendar()
     return (iso["year"].astype(str) + "-Semana " + iso["week"].apply(lambda w: f"{int(w):02d}" if pd.notna(w) else "00")).fillna("Semana Atual")
 
+def ler_texto_rm_blindado(texto_bruto):
+    """
+    Lê qualquer TSV/CSV do RM garantindo que cabeçalhos sem linhas sejam ignorados
+    e que colunas extras à direita nunca desloquem nem dupliquem colunas.
+    """
+    linhas = [l for l in texto_bruto.splitlines() if l.strip()]
+    if len(linhas) <= 1:
+        return pd.DataFrame()
+
+    sep = "\t" if "\t" in linhas[0] else (";" if ";" in linhas[0] else ",")
+    lidas = [r for r in csv.reader(linhas, delimiter=sep) if any(c.strip() for c in r)]
+    if len(lidas) <= 1:
+        return pd.DataFrame()
+
+    max_cols = max(len(r) for r in lidas)
+    cabecalho = [c.strip() for c in lidas[0]]
+    if len(cabecalho) < max_cols:
+        for i in range(len(cabecalho), max_cols):
+            cabecalho.append(f"COL_EXTRA_{i+1}")
+
+    cab_unico = []
+    vistos = {}
+    for c in cabecalho:
+        nome_c = c if c else "COL"
+        if nome_c in vistos:
+            vistos[nome_c] += 1
+            cab_unico.append(f"{nome_c}_{vistos[nome_c]}")
+        else:
+            vistos[nome_c] = 1
+            cab_unico.append(nome_c)
+
+    dados = []
+    for r in lidas[1:]:
+        if any("STATUS_PROVA" in str(x).upper() for x in r[:3]):
+            continue
+        if len(r) < max_cols:
+            r = r + [""] * (max_cols - len(r))
+        else:
+            r = r[:max_cols]
+        dados.append(r)
+
+    if not dados:
+        return pd.DataFrame()
+
+    return pd.DataFrame(dados, columns=cab_unico)
+
 def indexar_base_faltas(df):
     if df is None or df.empty:
         return pd.DataFrame()
-    df = df.copy().reset_index(drop=True)
+    df = df.loc[:, ~df.columns.duplicated()].copy().reset_index(drop=True)
     if "Lancado_RM" not in df.columns:
         df.insert(0, "Lancado_RM", False)
     df["Lancado_RM"] = df["Lancado_RM"].fillna(False).astype(bool)
@@ -219,7 +265,7 @@ def indexar_base_faltas(df):
 def indexar_base_moodle(df):
     if df is None or df.empty:
         return pd.DataFrame()
-    df = df.copy().reset_index(drop=True)
+    df = df.loc[:, ~df.columns.duplicated()].copy().reset_index(drop=True)
     if "Data_Coleta" not in df.columns:
         df.insert(0, "Data_Coleta", date.today().strftime("%Y-%m-%d"))
     df["Data_Coleta"] = df["Data_Coleta"].astype(str).str.slice(0, 10)
@@ -252,74 +298,138 @@ def indexar_base_moodle(df):
 
 def indexar_base_rm(df, df_faltas=None, df_moodle=None):
     """
-    Vetoriza e pré-indexa a base de Avaliação de Desempenho do TOTVS RM (AvaliacaoGeral),
-    cruzando com Faltas e Moodle para descobrir automaticamente a Turma, Matrícula e Turno do jovem!
+    Vetoriza e pré-indexa a base de Avaliação do TOTVS RM com trava anti-duplicação
+    de colunas (imune ao ValueError em np.where).
     """
     if df is None or df.empty:
         return pd.DataFrame()
-    df = df.copy().reset_index(drop=True)
 
-    # Padroniza nomes de colunas vindos da consulta SQL AvaliacaoGeral
+    # 1. Remove qualquer coluna duplicada de entrada
+    df = df.loc[:, ~df.columns.duplicated()].copy().reset_index(drop=True)
+
+    # 2. Mapeamento com bloqueio de duplicidade (cada destino só pode ser atribuído 1 vez)
+    mapa_exato = {
+        "STATUS_PROVA": "STATUS_PROVA",
+        "STATUS_PERIODO": "STATUS_PERIODO",
+        "CODPESSOA": "CODPESSOA",
+        "CODPROVA": "CODPROVA",
+        "CODPERIODO": "CODPERIODO",
+        "NOMEPROVA": "NOMEPROVA",
+        "NOMEPERIODO": "NOMEPERIODO",
+        "DATAINICIAL": "DATAINICIAL",
+        "DATAFINAL": "DATAFINAL",
+        "CODIGO_ACESSO": "CODIGO_ACESSO",
+        "NOME": "NOME",
+        "CIDADE": "CIDADE",
+        "CODTURMA": "Turma",
+        "TURMA": "Turma",
+        "NOMEPROFESSOR": "Instrutor_RM",
+        "INSTRUTOR": "Instrutor",
+        "INSTRUTOR_FILTRO": "Instrutor_Filtro"
+    }
+
+    alvos_usados = set()
     col_map = {}
+
     for c in df.columns:
         cu = str(c).strip().upper()
-        if "STATUS_PROVA" in cu: col_map[c] = "STATUS_PROVA"
-        elif "STATUS_PERIODO" in cu: col_map[c] = "STATUS_PERIODO"
-        elif "CODPESSOA" in cu: col_map[c] = "CODPESSOA"
-        elif "NOMEPROVA" in cu: col_map[c] = "NOMEPROVA"
-        elif "NOMEPERIODO" in cu: col_map[c] = "NOMEPERIODO"
-        elif "DATAINICIAL" in cu: col_map[c] = "DATAINICIAL"
-        elif "DATAFINAL" in cu: col_map[c] = "DATAFINAL"
-        elif "CODIGO_ACESSO" in cu or "ACESSO" in cu: col_map[c] = "CODIGO_ACESSO"
-        elif cu in ("NOME", "JOVEM", "ALUNO"): col_map[c] = "NOME"
-        elif "CIDADE" in cu: col_map[c] = "CIDADE"
-        elif "INSTRUTOR" in cu or "NOMEPROFESSOR" in cu: col_map[c] = "Instrutor"
-        elif "TURMA" in cu: col_map[c] = "Turma"
+        if cu in mapa_exato:
+            dest = mapa_exato[cu]
+            if dest not in alvos_usados:
+                col_map[c] = dest
+                alvos_usados.add(dest)
+
+    for c in df.columns:
+        if c in col_map:
+            continue
+        cu = str(c).strip().upper()
+        dest = None
+        if "STATUS_PROVA" in cu: dest = "STATUS_PROVA"
+        elif "STATUS_PERIODO" in cu: dest = "STATUS_PERIODO"
+        elif "CODPESSOA" in cu: dest = "CODPESSOA"
+        elif "NOMEPROVA" in cu: dest = "NOMEPROVA"
+        elif "NOMEPERIODO" in cu: dest = "NOMEPERIODO"
+        elif "DATAINICIAL" in cu: dest = "DATAINICIAL"
+        elif "DATAFINAL" in cu: dest = "DATAFINAL"
+        elif "ACESSO" in cu: dest = "CODIGO_ACESSO"
+        elif "CIDADE" in cu: dest = "CIDADE"
+        elif "TURMA" in cu: dest = "Turma"
+        elif "PROFESSOR" in cu: dest = "Instrutor_RM"
+        elif "INSTRUTOR" in cu: dest = "Instrutor_Filtro"
+
+        if dest and dest not in alvos_usados:
+            col_map[c] = dest
+            alvos_usados.add(dest)
 
     df = df.rename(columns=col_map)
+    df = df.loc[:, ~df.columns.duplicated()].copy()
 
-    for col_obr in ["STATUS_PROVA", "STATUS_PERIODO", "CODPESSOA", "NOMEPROVA", "NOMEPERIODO", "DATAINICIAL", "DATAFINAL", "CODIGO_ACESSO", "NOME", "CIDADE"]:
+    # Se não havia coluna nomeada 'Turma', verifica se alguma coluna extra possui códigos '.APC'
+    if "Turma" not in df.columns:
+        for c in df.columns:
+            amostra = df[c].dropna().astype(str).head(25)
+            if amostra.str.contains(r"APC\d+", case=False, regex=True).any():
+                df["Turma"] = df[c].astype(str).str.strip()
+                break
+
+    colunas_padrao = [
+        "STATUS_PROVA", "STATUS_PERIODO", "CODPESSOA", "CODPROVA", "CODPERIODO",
+        "NOMEPROVA", "NOMEPERIODO", "DATAINICIAL", "DATAFINAL", "CODIGO_ACESSO", "NOME", "CIDADE"
+    ]
+    for col_obr in colunas_padrao:
         if col_obr not in df.columns:
             df[col_obr] = ""
-        df[col_obr] = df[col_obr].fillna("").astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
+        serie_col = df[col_obr]
+        if isinstance(serie_col, pd.DataFrame):
+            serie_col = serie_col.iloc[:, 0]
+        df[col_obr] = serie_col.fillna("").astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
 
     df["NOME"] = df["NOME"].apply(sanitizar_celula)
     df["_nome_upper"] = df["NOME"].str.upper()
 
-    # Cruzamento inteligente com Faltas e Moodle para descobrir Turma e Matrícula do jovem pelo Nome
+    # Cruzamento com Faltas e Moodle para descobrir Turma e Matrícula pelo Nome
     mapa_nome_turma = {}
     mapa_nome_mat = {}
     if df_moodle is not None and not df_moodle.empty and "Jovem" in df_moodle.columns and "Turma" in df_moodle.columns:
-        for n_j, t_j in zip(df_moodle["Jovem"].str.upper(), df_moodle["Turma"]):
+        for n_j, t_j in zip(df_moodle["Jovem"].astype(str).str.upper(), df_moodle["Turma"].astype(str)):
             if n_j and t_j:
                 mapa_nome_turma[n_j] = t_j
     if df_faltas is not None and not df_faltas.empty and "Nome" in df_faltas.columns and "Turma" in df_faltas.columns:
-        for n_j, t_j, m_j in zip(df_faltas["Nome"].str.upper(), df_faltas["Turma"], df_faltas["Matricula"]):
+        for n_j, t_j, m_j in zip(df_faltas["Nome"].astype(str).str.upper(), df_faltas["Turma"].astype(str), df_faltas["Matricula"].astype(str)):
             if n_j and t_j:
                 mapa_nome_turma[n_j] = t_j
             if n_j and m_j:
                 mapa_nome_mat[n_j] = m_j
 
+    turma_cruzada = df["_nome_upper"].map(mapa_nome_turma).fillna("Não Identificada")
     if "Turma" not in df.columns:
-        df["Turma"] = df["_nome_upper"].map(mapa_nome_turma).fillna("Não Identificada")
+        df["Turma"] = turma_cruzada
     else:
-        df["Turma"] = np.where(
-            df["Turma"].isin(["", "nan", "None", "Não Identificada"]),
-            df["_nome_upper"].map(mapa_nome_turma).fillna("Não Identificada"),
-            df["Turma"]
-        )
+        serie_turma = df["Turma"].iloc[:, 0] if isinstance(df["Turma"], pd.DataFrame) else df["Turma"]
+        serie_turma = serie_turma.fillna("").astype(str).str.strip()
+        mask_vazia = serie_turma.isin(["", "nan", "None", "Não Identificada"])
+        df["Turma"] = np.where(mask_vazia, turma_cruzada, serie_turma)
 
     df["Matricula"] = df["_nome_upper"].map(mapa_nome_mat).fillna(df["CODPESSOA"])
     df["_turma_norm"] = df["Turma"].astype(str).str.lstrip("0").str.upper()
 
-    if "Instrutor" not in df.columns:
-        df["Instrutor"] = df["_turma_norm"].map(MAPA_TURMA_STR).fillna("Guilherme Gomes Bezerra")
+    inst_base = pd.Series("", index=df.index)
+    if "Instrutor_RM" in df.columns:
+        s_rm = df["Instrutor_RM"].iloc[:, 0] if isinstance(df["Instrutor_RM"], pd.DataFrame) else df["Instrutor_RM"]
+        inst_base = s_rm.fillna("").astype(str).str.strip()
+    elif "Instrutor" in df.columns:
+        s_in = df["Instrutor"].iloc[:, 0] if isinstance(df["Instrutor"], pd.DataFrame) else df["Instrutor"]
+        inst_base = s_in.fillna("").astype(str).str.strip()
+
+    inst_turma = df["_turma_norm"].map(MAPA_TURMA_STR).fillna("")
+    if "Instrutor_Filtro" in df.columns:
+        s_flt = df["Instrutor_Filtro"].iloc[:, 0] if isinstance(df["Instrutor_Filtro"], pd.DataFrame) else df["Instrutor_Filtro"]
+        inst_filtro = s_flt.fillna("").astype(str).str.strip()
     else:
-        df["Instrutor"] = np.where(
-            df["Instrutor"].isin(["", "nan", "None"]),
-            df["_turma_norm"].map(MAPA_TURMA_STR).fillna("Guilherme Gomes Bezerra"),
-            df["Instrutor"]
-        )
+        inst_filtro = pd.Series("Guilherme Gomes Bezerra", index=df.index)
+
+    df["Instrutor"] = np.where(inst_base != "", inst_base, np.where(inst_turma != "", inst_turma, inst_filtro))
+    df["Instrutor"] = pd.Series(df["Instrutor"], index=df.index).replace("", "Guilherme Gomes Bezerra")
 
     cond_m = df["_turma_norm"].str.contains("M.", regex=False)
     cond_v = df["_turma_norm"].str.contains("V.", regex=False)
@@ -986,7 +1096,7 @@ def renderizar_painel_rm():
         df_cobranca = df_r_sub[df_r_sub["STATUS_PROVA"].str.upper() != "FINALIZADO"]
         linhas_msg = [
             f"• {r['NOME']} | Código de Acesso: {r['CODIGO_ACESSO'] or 'Sem código'} | Período: {r['NOMEPERIODO']} (Até {r['DATAFINAL']}) | Cidade: {r['CIDADE']}"
-            for _, r in df_cobranca.iterrows()
+            for _, r in df_cobranca.head(500).iterrows()
         ]
         st.text_area("📋 Copie as linhas abaixo para cobrar os jovens:", value="\n".join(linhas_msg), height=220)
 
@@ -1167,25 +1277,53 @@ elif st.session_state["modulo_ativo"] == "RM":
                 key="uploader_rm_files"
             )
 
+        # Leitura imediata ao soltar o ficheiro .tsv / .xlsx na Opção B
+        if arqs_rm_up:
+            assinatura_rm = [f"{a.name}_{a.size}" for a in arqs_rm_up]
+            if st.session_state.get("ultimos_arquivos_rm") != assinatura_rm:
+                novos_rm_auto = []
+                for arq_r in arqs_rm_up:
+                    try:
+                        if arq_r.name.lower().endswith((".xlsx", ".xls")):
+                            df_r_temp = pd.read_excel(arq_r)
+                        else:
+                            cont_r = arq_r.getvalue().decode("utf-8-sig", errors="ignore")
+                            df_r_temp = ler_texto_rm_blindado(cont_r)
+                        if not df_r_temp.empty:
+                            novos_rm_auto.append(df_r_temp)
+                    except Exception as e:
+                        st.error(f"Erro ao ler ficheiro {arq_r.name}: {e}")
+
+                st.session_state["ultimos_arquivos_rm"] = assinatura_rm
+                if novos_rm_auto:
+                    df_lote_r = pd.concat(novos_rm_auto, ignore_index=True)
+                    df_comb_r = pd.concat([st.session_state["base_rm"], df_lote_r], ignore_index=True)
+                    df_comb_r = indexar_base_rm(df_comb_r, st.session_state["base_faltas"], st.session_state["base_moodle"])
+                    df_comb_r = df_comb_r.drop_duplicates(
+                        subset=["CODPESSOA", "NOMEPERIODO", "NOME"], keep="last"
+                    ).reset_index(drop=True)
+                    st.session_state["base_rm"] = df_comb_r
+                    st.rerun()
+
         brm1, brm2 = st.columns([2, 1])
         with brm1:
             if st.button("➕ Processar e Guardar Avaliação RM", type="primary", use_container_width=True):
                 novos_rm = []
                 if txt_rm.strip():
-                    try:
-                        novos_rm.append(pd.read_csv(io.StringIO(txt_rm.strip()), sep="\t"))
-                    except Exception as e:
-                        st.error(f"Erro ao processar texto do RM: {e}")
+                    df_txt_r = ler_texto_rm_blindado(txt_rm.strip())
+                    if not df_txt_r.empty:
+                        novos_rm.append(df_txt_r)
 
                 if arqs_rm_up:
                     for arq_r in arqs_rm_up:
                         try:
                             if arq_r.name.lower().endswith((".xlsx", ".xls")):
-                                novos_rm.append(pd.read_excel(arq_r))
+                                df_r_temp = pd.read_excel(arq_r)
                             else:
                                 cont_r = arq_r.getvalue().decode("utf-8-sig", errors="ignore")
-                                sep_r = "\t" if "\t" in cont_r else (";" if ";" in cont_r else ",")
-                                novos_rm.append(pd.read_csv(io.StringIO(cont_r), sep=sep_r))
+                                df_r_temp = ler_texto_rm_blindado(cont_r)
+                            if not df_r_temp.empty:
+                                novos_rm.append(df_r_temp)
                         except Exception as e:
                             st.error(f"Erro ao ler ficheiro {arq_r.name}: {e}")
 
@@ -1202,6 +1340,7 @@ elif st.session_state["modulo_ativo"] == "RM":
         with brm2:
             if st.button("🗑️ Limpar Base de Avaliação RM", use_container_width=True):
                 st.session_state["base_rm"] = pd.DataFrame()
+                st.session_state["ultimos_arquivos_rm"] = []
                 st.rerun()
 
     renderizar_painel_rm()
