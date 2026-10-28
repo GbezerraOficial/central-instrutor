@@ -27,8 +27,8 @@ st.markdown("""
     div.stButton > button {
         border-radius: 10px !important;
         font-weight: 700 !important;
-        font-size: 15px !important;
-        padding: 12px 16px !important;
+        font-size: 14px !important;
+        padding: 12px 12px !important;
         transition: all 0.15s ease-in-out !important;
         border: 2px solid #334155 !important;
     }
@@ -41,10 +41,10 @@ st.markdown("""
         background-color: #1e293b !important;
         color: #cbd5e1 !important;
         border-radius: 8px 8px 0 0 !important;
-        padding: 12px 22px !important;
-        margin-right: 8px !important;
+        padding: 11px 18px !important;
+        margin-right: 6px !important;
         font-weight: 700 !important;
-        font-size: 15px !important;
+        font-size: 14px !important;
         border: 1px solid #334155 !important;
         border-bottom: none !important;
     }
@@ -72,14 +72,14 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 1. ESTRUTURAS PRÉ-COMPILADAS E MAPEAMENTO DE INSTRUTORES
+# 1. ESTRUTURAS PRÉ-COMPILADAS E BANCO DE TURMAS DOS 8 INSTRUTORES
 # ==============================================================================
 UFS_BRASIL = {
     "AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS", "MT",
     "PA", "PB", "PE", "PI", "PR", "RJ", "RN", "RO", "RR", "RS", "SC", "SE", "SP", "TO"
 }
 
-LIMITE_BYTES_ARQUIVO = 50 * 1024 * 1024  # Proteção ZIP Bomb: máx 50 MB por arquivo interno
+LIMITE_BYTES_ARQUIVO = 50 * 1024 * 1024
 REGEX_DATA_ARQ = re.compile(r"(\d{2})[-._](\d{2})[-._](\d{4})")
 REGEX_DISC_ARQ = re.compile(r"\s*-\s*\d{2}[-._]\d{2}[-._]\d{4}")
 REGEX_EXT_ARQ = re.compile(r"\.(xlsx?|csv|tsv)$", re.I)
@@ -135,7 +135,6 @@ for inst, turnos in BANCO_TURMAS.items():
             MAPA_TURMA_STR[cod_norm] += f" / {inst}"
 
 def sanitizar_celula(valor):
-    """Previne CSV/Excel Formula Injection higienizando símbolos de comando no início do texto."""
     s = str(valor).strip()
     if s and s[0] in ("=", "+", "-", "@") and "@" not in s[1:]:
         return "'" + s
@@ -163,7 +162,6 @@ def calcular_semana_vetorizado(serie_datas):
     return (iso["year"].astype(str) + "-Semana " + iso["week"].apply(lambda w: f"{int(w):02d}" if pd.notna(w) else "00")).fillna("Semana Atual")
 
 def indexar_base_faltas(df):
-    """Vetoriza e pré-indexa a base de Faltas na entrada."""
     if df is None or df.empty:
         return pd.DataFrame()
     df = df.copy().reset_index(drop=True)
@@ -219,7 +217,6 @@ def indexar_base_faltas(df):
     return df
 
 def indexar_base_moodle(df):
-    """Vetoriza e pré-indexa a base do Moodle na entrada."""
     if df is None or df.empty:
         return pd.DataFrame()
     df = df.copy().reset_index(drop=True)
@@ -253,13 +250,97 @@ def indexar_base_moodle(df):
 
     return df
 
+def indexar_base_rm(df, df_faltas=None, df_moodle=None):
+    """
+    Vetoriza e pré-indexa a base de Avaliação de Desempenho do TOTVS RM (AvaliacaoGeral),
+    cruzando com Faltas e Moodle para descobrir automaticamente a Turma, Matrícula e Turno do jovem!
+    """
+    if df is None or df.empty:
+        return pd.DataFrame()
+    df = df.copy().reset_index(drop=True)
+
+    # Padroniza nomes de colunas vindos da consulta SQL AvaliacaoGeral
+    col_map = {}
+    for c in df.columns:
+        cu = str(c).strip().upper()
+        if "STATUS_PROVA" in cu: col_map[c] = "STATUS_PROVA"
+        elif "STATUS_PERIODO" in cu: col_map[c] = "STATUS_PERIODO"
+        elif "CODPESSOA" in cu: col_map[c] = "CODPESSOA"
+        elif "NOMEPROVA" in cu: col_map[c] = "NOMEPROVA"
+        elif "NOMEPERIODO" in cu: col_map[c] = "NOMEPERIODO"
+        elif "DATAINICIAL" in cu: col_map[c] = "DATAINICIAL"
+        elif "DATAFINAL" in cu: col_map[c] = "DATAFINAL"
+        elif "CODIGO_ACESSO" in cu or "ACESSO" in cu: col_map[c] = "CODIGO_ACESSO"
+        elif cu in ("NOME", "JOVEM", "ALUNO"): col_map[c] = "NOME"
+        elif "CIDADE" in cu: col_map[c] = "CIDADE"
+        elif "INSTRUTOR" in cu or "NOMEPROFESSOR" in cu: col_map[c] = "Instrutor"
+        elif "TURMA" in cu: col_map[c] = "Turma"
+
+    df = df.rename(columns=col_map)
+
+    for col_obr in ["STATUS_PROVA", "STATUS_PERIODO", "CODPESSOA", "NOMEPROVA", "NOMEPERIODO", "DATAINICIAL", "DATAFINAL", "CODIGO_ACESSO", "NOME", "CIDADE"]:
+        if col_obr not in df.columns:
+            df[col_obr] = ""
+        df[col_obr] = df[col_obr].fillna("").astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
+
+    df["NOME"] = df["NOME"].apply(sanitizar_celula)
+    df["_nome_upper"] = df["NOME"].str.upper()
+
+    # Cruzamento inteligente com Faltas e Moodle para descobrir Turma e Matrícula do jovem pelo Nome
+    mapa_nome_turma = {}
+    mapa_nome_mat = {}
+    if df_moodle is not None and not df_moodle.empty and "Jovem" in df_moodle.columns and "Turma" in df_moodle.columns:
+        for n_j, t_j in zip(df_moodle["Jovem"].str.upper(), df_moodle["Turma"]):
+            if n_j and t_j:
+                mapa_nome_turma[n_j] = t_j
+    if df_faltas is not None and not df_faltas.empty and "Nome" in df_faltas.columns and "Turma" in df_faltas.columns:
+        for n_j, t_j, m_j in zip(df_faltas["Nome"].str.upper(), df_faltas["Turma"], df_faltas["Matricula"]):
+            if n_j and t_j:
+                mapa_nome_turma[n_j] = t_j
+            if n_j and m_j:
+                mapa_nome_mat[n_j] = m_j
+
+    if "Turma" not in df.columns:
+        df["Turma"] = df["_nome_upper"].map(mapa_nome_turma).fillna("Não Identificada")
+    else:
+        df["Turma"] = np.where(
+            df["Turma"].isin(["", "nan", "None", "Não Identificada"]),
+            df["_nome_upper"].map(mapa_nome_turma).fillna("Não Identificada"),
+            df["Turma"]
+        )
+
+    df["Matricula"] = df["_nome_upper"].map(mapa_nome_mat).fillna(df["CODPESSOA"])
+    df["_turma_norm"] = df["Turma"].astype(str).str.lstrip("0").str.upper()
+
+    if "Instrutor" not in df.columns:
+        df["Instrutor"] = df["_turma_norm"].map(MAPA_TURMA_STR).fillna("Guilherme Gomes Bezerra")
+    else:
+        df["Instrutor"] = np.where(
+            df["Instrutor"].isin(["", "nan", "None"]),
+            df["_turma_norm"].map(MAPA_TURMA_STR).fillna("Guilherme Gomes Bezerra"),
+            df["Instrutor"]
+        )
+
+    cond_m = df["_turma_norm"].str.contains("M.", regex=False)
+    cond_v = df["_turma_norm"].str.contains("V.", regex=False)
+    df["Turno"] = np.select([cond_m, cond_v], ["M - Manhã", "V - Tarde"], default="Geral")
+
+    df["_busca_idx"] = (
+        df["CODPESSOA"] + " " + df["Matricula"] + " " + df["NOME"] + " " +
+        df["CODIGO_ACESSO"] + " " + df["CIDADE"] + " " + df["Turma"] + " " + df["NOMEPERIODO"]
+    ).str.upper()
+
+    return df
+
 def filtrar_rapido_por_instrutor(df_alvo, nome_instrutor):
     if nome_instrutor == "🌟 Todos os Instrutores":
         return df_alvo
     if nome_instrutor == "Não Mapeado / Outros":
         return df_alvo[df_alvo["Instrutor"] == "Não Mapeado / Outros"]
     codigos_inst = SET_TURMAS_POR_INSTRUTOR.get(nome_instrutor, set())
-    return df_alvo[df_alvo["_turma_norm"].isin(codigos_inst)]
+    mask_turma = df_alvo["_turma_norm"].isin(codigos_inst) if "_turma_norm" in df_alvo.columns else False
+    mask_inst = df_alvo["Instrutor"].astype(str).str.contains(nome_instrutor, case=False, na=False)
+    return df_alvo[mask_turma | mask_inst]
 
 # ==============================================================================
 # 2. LEITOR UNIVERSAL PARALELO E CACHEADO (@st.cache_data)
@@ -365,7 +446,6 @@ def extrair_alunos_do_dataframe(df_raw, nome_arq, data_padrao_str):
     disc_arquivo = REGEX_DISC_ARQ.split(nome_limpo)[0]
     disc_arquivo = REGEX_EXT_ARQ.sub("", disc_arquivo).strip()
 
-    # VIA RÁPIDA VETORIZADA (Padrão de 10+ colunas: A=0, B=1, D=3, F=5, J=9)
     if df_clean.shape[1] >= 10:
         col_j = df_clean.iloc[:, 9].dropna().astype(str)
         if not col_j.empty and col_j.str.contains("APC", case=False, na=False).any():
@@ -382,7 +462,6 @@ def extrair_alunos_do_dataframe(df_raw, nome_arq, data_padrao_str):
                 sub["Arquivo_Origem"] = nome_limpo
                 return sub[["Matricula", "Nome", "Cidade", "Estado", "Disciplina", "Turma", "Data_Falta", "Arquivo_Origem"]]
 
-    # FALLBACK CELULAR (Para planilhas fora do padrão de 10 colunas)
     registros = []
     for _, row in df_clean.iterrows():
         valores = [str(v).strip() for v in row.values if pd.notna(v) and str(v).strip() not in ("", "nan", "None")]
@@ -522,14 +601,17 @@ if "base_moodle" not in st.session_state:
     st.session_state["base_moodle"] = pd.DataFrame()
 if "base_faltas" not in st.session_state:
     st.session_state["base_faltas"] = pd.DataFrame()
+if "base_rm" not in st.session_state:
+    st.session_state["base_rm"] = pd.DataFrame()
 if "modulo_ativo" not in st.session_state:
     st.session_state["modulo_ativo"] = "FALTAS"
 
 # ==============================================================================
-# 4. BARRA LATERAL: BACKUP UNIFICADO (.XLSX)
+# 4. BARRA LATERAL: BACKUP UNIFICADO DAS 3 ETAPAS (.XLSX)
 # ==============================================================================
 with st.sidebar:
     st.markdown("### 🗄️ BACKUP HISTÓRICO (.XLSX)")
+    st.caption("Guarde ou restaure as 3 bases (**Faltas + Moodle + Avaliação RM**) num único Excel:")
     arq_hist = st.file_uploader("📂 Restaurar Histórico Salvo:", type=["xlsx"])
     if arq_hist and st.button("🔄 Carregar Histórico", use_container_width=True):
         xls = pd.ExcelFile(arq_hist)
@@ -537,52 +619,67 @@ with st.sidebar:
             st.session_state["base_moodle"] = indexar_base_moodle(pd.read_excel(xls, "Historico_Moodle"))
         if "Historico_Faltas" in xls.sheet_names:
             st.session_state["base_faltas"] = indexar_base_faltas(pd.read_excel(xls, "Historico_Faltas"))
-        st.success("✅ Histórico restaurado e indexado!")
+        if "Historico_RM" in xls.sheet_names:
+            st.session_state["base_rm"] = indexar_base_rm(
+                pd.read_excel(xls, "Historico_RM"),
+                st.session_state["base_faltas"],
+                st.session_state["base_moodle"]
+            )
+        st.success("✅ Histórico completo restaurado!")
         st.rerun()
 
-    if not st.session_state["base_moodle"].empty or not st.session_state["base_faltas"].empty:
+    tem_dados = any(not st.session_state[k].empty for k in ["base_moodle", "base_faltas", "base_rm"])
+    if tem_dados:
         buf = io.BytesIO()
         with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-            if not st.session_state["base_moodle"].empty:
-                cols_m_exp = [c for c in st.session_state["base_moodle"].columns if not c.startswith("_")]
-                st.session_state["base_moodle"][cols_m_exp].to_excel(writer, sheet_name="Historico_Moodle", index=False)
             if not st.session_state["base_faltas"].empty:
-                cols_f_exp = [c for c in st.session_state["base_faltas"].columns if not c.startswith("_")]
-                st.session_state["base_faltas"][cols_f_exp].to_excel(writer, sheet_name="Historico_Faltas", index=False)
+                cols_f = [c for c in st.session_state["base_faltas"].columns if not c.startswith("_")]
+                st.session_state["base_faltas"][cols_f].to_excel(writer, sheet_name="Historico_Faltas", index=False)
+            if not st.session_state["base_moodle"].empty:
+                cols_m = [c for c in st.session_state["base_moodle"].columns if not c.startswith("_")]
+                st.session_state["base_moodle"][cols_m].to_excel(writer, sheet_name="Historico_Moodle", index=False)
+            if not st.session_state["base_rm"].empty:
+                cols_r = [c for c in st.session_state["base_rm"].columns if not c.startswith("_")]
+                st.session_state["base_rm"][cols_r].to_excel(writer, sheet_name="Historico_RM", index=False)
         st.download_button(
-            label="💾 Baixar Base Histórica (.xlsx)",
+            label="💾 Baixar Base Unificada (.xlsx)",
             data=buf.getvalue(),
-            file_name=f"Base_Central_{datetime.now().strftime('%d-%m-%Y')}.xlsx",
+            file_name=f"Base_Completa_{datetime.now().strftime('%d-%m-%Y')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             type="primary",
             use_container_width=True
         )
 
 # ==============================================================================
-# 5. MENU PRINCIPAL COM ALTO DESTAQUE VISUAL
+# 5. MENU PRINCIPAL COM AS 4 ÁREAS DO SISTEMA
 # ==============================================================================
 st.markdown("## 🧭 Menu Principal de Módulos")
 qtd_faltas = len(st.session_state["base_faltas"])
 qtd_moodle = len(st.session_state["base_moodle"])
+qtd_rm = len(st.session_state["base_rm"])
 
-nav1, nav2, nav3 = st.columns(3)
+nav1, nav2, nav3, nav4 = st.columns(4)
 with nav1:
-    if st.button(f"🟧 1. CONTROLE DE FALTAS ({qtd_faltas} registos)", use_container_width=True, type="primary" if st.session_state["modulo_ativo"] == "FALTAS" else "secondary"):
+    if st.button(f"🟧 1. FALTAS ({qtd_faltas})", use_container_width=True, type="primary" if st.session_state["modulo_ativo"] == "FALTAS" else "secondary"):
         st.session_state["modulo_ativo"] = "FALTAS"
         st.rerun()
 with nav2:
-    if st.button(f"🟦 2. ATIVIDADES MOODLE ({qtd_moodle} registos)", use_container_width=True, type="primary" if st.session_state["modulo_ativo"] == "MOODLE" else "secondary"):
+    if st.button(f"🟦 2. MOODLE ({qtd_moodle})", use_container_width=True, type="primary" if st.session_state["modulo_ativo"] == "MOODLE" else "secondary"):
         st.session_state["modulo_ativo"] = "MOODLE"
         st.rerun()
 with nav3:
-    if st.button("🟩 3. VISÃO 360º (FALTAS + MOODLE)", use_container_width=True, type="primary" if st.session_state["modulo_ativo"] == "VISAO360" else "secondary"):
+    if st.button(f"🟪 3. AVALIAÇÃO RM ({qtd_rm})", use_container_width=True, type="primary" if st.session_state["modulo_ativo"] == "RM" else "secondary"):
+        st.session_state["modulo_ativo"] = "RM"
+        st.rerun()
+with nav4:
+    if st.button("🟩 4. VISÃO 360º GERAL", use_container_width=True, type="primary" if st.session_state["modulo_ativo"] == "VISAO360" else "secondary"):
         st.session_state["modulo_ativo"] = "VISAO360"
         st.rerun()
 
 st.write("")
 
 # ==============================================================================
-# FRAGMENTO ISOLADO DE FILTRAGEM ULTRARRÁPIDA: FALTAS
+# FRAGMENTO 1: PAINEL DE FALTAS
 # ==============================================================================
 @st.fragment
 def renderizar_painel_faltas():
@@ -639,7 +736,6 @@ def renderizar_painel_faltas():
 
     if sel_turno_f != "Todos (M + V)":
         df_sub = df_sub[df_sub["Turno"] == sel_turno_f]
-
     if busca_f:
         df_sub = df_sub[df_sub["_busca_idx"].str.contains(busca_f.strip().upper(), regex=False, na=False)]
 
@@ -715,7 +811,7 @@ def renderizar_painel_faltas():
         st.dataframe(resumo_t, use_container_width=True, hide_index=True)
 
 # ==============================================================================
-# FRAGMENTO ISOLADO DE FILTRAGEM ULTRARRÁPIDA: MOODLE
+# FRAGMENTO 2: PAINEL DO MOODLE
 # ==============================================================================
 @st.fragment
 def renderizar_painel_moodle():
@@ -817,12 +913,98 @@ def renderizar_painel_moodle():
             st.dataframe(comp[comp["_merge"] == "left_only"][["Turma", "Atividade", "Jovem"]], use_container_width=True, hide_index=True)
 
 # ==============================================================================
+# FRAGMENTO 3: PAINEL DE AVALIAÇÃO DE DESEMPENHO (TOTVS RM)
+# ==============================================================================
+@st.fragment
+def renderizar_painel_rm():
+    df_r = st.session_state["base_rm"]
+    if df_r.empty:
+        return
+
+    st.markdown("#### ⚡ Filtros Instantâneos da Avaliação de Desempenho (RM)")
+    rc1, rc2, rc3, rc4, rc5 = st.columns([1.4, 1.3, 1.2, 1.3, 1.4])
+
+    with rc1:
+        opcoes_inst_r = ["🌟 Todos os Instrutores"] + list(BANCO_TURMAS.keys()) + ["Não Mapeado / Outros"]
+        sel_inst_r = st.selectbox("👤 1. Instrutor(a):", opcoes_inst_r, index=0, key="r_inst")
+    with rc2:
+        status_disp = sorted(df_r["STATUS_PROVA"].unique().tolist())
+        padrao_pendentes = [s for s in status_disp if s.upper() != "FINALIZADO"] or status_disp
+        sel_status_prova = st.multiselect("📊 2. Status da Prova:", options=status_disp, default=padrao_pendentes, key="r_st_prova")
+    with rc3:
+        per_status_disp = ["Todos"] + sorted(df_r["STATUS_PERIODO"].unique().tolist())
+        sel_status_per = st.selectbox("⏳ 3. Status Período:", per_status_disp, key="r_st_per")
+    with rc4:
+        periodos_disp = ["Todos os Períodos"] + sorted(df_r["NOMEPERIODO"].unique().tolist())
+        sel_nome_per = st.selectbox("🗓️ 4. Ciclo / Período:", periodos_disp, key="r_ciclo")
+    with rc5:
+        busca_r = st.text_input("🔍 5. Buscar Jovem / Código / Cidade:", placeholder="Nome, Código Acesso, Cidade...", key="r_busca")
+
+    df_r_sub = filtrar_rapido_por_instrutor(df_r, sel_inst_r)
+    if sel_status_prova:
+        df_r_sub = df_r_sub[df_r_sub["STATUS_PROVA"].isin(sel_status_prova)]
+    if sel_status_per != "Todos":
+        df_r_sub = df_r_sub[df_r_sub["STATUS_PERIODO"] == sel_status_per]
+    if sel_nome_per != "Todos os Períodos":
+        df_r_sub = df_r_sub[df_r_sub["NOMEPERIODO"] == sel_nome_per]
+    if busca_r:
+        df_r_sub = df_r_sub[df_r_sub["_busca_idx"].str.contains(busca_r.strip().upper(), regex=False, na=False)]
+
+    kr1, kr2, kr3, kr4, kr5 = st.columns(5)
+    kr1.metric("Registos no Filtro", len(df_r_sub))
+    kr2.metric("🚨 Pendentes", int((df_r_sub["STATUS_PROVA"].str.upper() == "PENDENTE").sum()))
+    kr3.metric("⏳ Em Andamento", int((df_r_sub["STATUS_PROVA"].str.upper() == "ANDAMENTO").sum()))
+    kr4.metric("✅ Finalizados (Geral)", int((df_r["STATUS_PROVA"].str.upper() == "FINALIZADO").sum()))
+    kr5.metric("Períodos Ativos", df_r_sub["NOMEPERIODO"].nunique())
+
+    sub_r1, sub_r2, sub_r3 = st.tabs([
+        "📋 1. RELAÇÃO DE JOVENS & CÓDIGOS DE ACESSO",
+        "📲 2. LISTA PRONTA PARA COBRANÇA (COM CÓDIGO DE ACESSO)",
+        "📊 3. RESUMO POR PERÍODO AVALIATIVO E CIDADE"
+    ])
+
+    cols_rm_foco = [
+        "STATUS_PROVA", "STATUS_PERIODO", "CODPESSOA", "NOME", "CODIGO_ACESSO",
+        "NOMEPERIODO", "DATAINICIAL", "DATAFINAL", "CIDADE", "Turma", "Turno", "Instrutor"
+    ]
+    cols_rm_pres = [c for c in cols_rm_foco if c in df_r_sub.columns]
+
+    with sub_r1:
+        st.dataframe(df_r_sub[cols_rm_pres], use_container_width=True, hide_index=True)
+        buf_rm = io.BytesIO()
+        with pd.ExcelWriter(buf_rm, engine="openpyxl") as writer:
+            df_r_sub[cols_rm_pres].to_excel(writer, sheet_name="Avaliacao_RM_Filtrada", index=False)
+        st.download_button(
+            label="📥 Exportar Avaliação Filtrada (.xlsx)",
+            data=buf_rm.getvalue(),
+            file_name=f"Avaliacao_RM_{datetime.now().strftime('%d-%m-%Y')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+    with sub_r2:
+        st.caption("💡 Lista gerada automaticamente com Nome, Código de Acesso e Prazo Final para envio aos jovens pendentes:")
+        df_cobranca = df_r_sub[df_r_sub["STATUS_PROVA"].str.upper() != "FINALIZADO"]
+        linhas_msg = [
+            f"• {r['NOME']} | Código de Acesso: {r['CODIGO_ACESSO'] or 'Sem código'} | Período: {r['NOMEPERIODO']} (Até {r['DATAFINAL']}) | Cidade: {r['CIDADE']}"
+            for _, r in df_cobranca.iterrows()
+        ]
+        st.text_area("📋 Copie as linhas abaixo para cobrar os jovens:", value="\n".join(linhas_msg), height=220)
+
+    with sub_r3:
+        resumo_ciclo = (
+            df_r_sub.groupby(["NOMEPERIODO", "STATUS_PROVA", "STATUS_PERIODO"], as_index=False)
+            .agg(Total_Jovens=("NOME", "count"), Cidades_Afetadas=("CIDADE", "nunique"))
+            .sort_values(by=["NOMEPERIODO", "Total_Jovens"], ascending=[True, False])
+        )
+        st.dataframe(resumo_ciclo, use_container_width=True, hide_index=True)
+
+# ==============================================================================
 # RENDERIZAÇÃO DO MÓDULO ATIVO
 # ==============================================================================
 if st.session_state["modulo_ativo"] == "FALTAS":
     st.markdown("""
     <div class="banner-modulo" style="background: linear-gradient(90deg, #ea580c 0%, #c2410c 100%); border-left: 8px solid #fed7aa;">
-        <h2 style="margin:0;color:white;">🟧 MÓDULO: Controle de Faltas (SharePoint ➔ Diário de Classe RM)</h2>
+        <h2 style="margin:0;color:white;">🟧 MÓDULO 1: Controle de Faltas (SharePoint ➔ Diário de Classe RM)</h2>
         <p style="margin:4px 0 0 0;opacity:0.95;font-size:14px;">
             Motor Paralelo Multi-Thread + Filtragem Instantânea: <b>Matrícula, Nome, Cidade, Estado, Disciplina, Turma e Turno</b>.
         </p>
@@ -876,7 +1058,7 @@ if st.session_state["modulo_ativo"] == "FALTAS":
 elif st.session_state["modulo_ativo"] == "MOODLE":
     st.markdown("""
     <div class="banner-modulo" style="background: linear-gradient(90deg, #0284c7 0%, #1d4ed8 100%); border-left: 8px solid #bae6fd;">
-        <h2 style="margin:0;color:white;">🟦 MÓDULO: Acompanhamento de Atividades (Moodle Demà Digital)</h2>
+        <h2 style="margin:0;color:white;">🟦 MÓDULO 2: Acompanhamento de Atividades (Moodle Demà Digital)</h2>
         <p style="margin:4px 0 0 0;opacity:0.95;font-size:14px;">
             Importação por Texto ou Planilhas (<b>.TSV, .CSV, .XLSX, .XLS</b>) e filtragem instantânea por <b>Instrutor</b> e <b>Disciplina</b>.
         </p>
@@ -959,35 +1141,107 @@ elif st.session_state["modulo_ativo"] == "MOODLE":
 
     renderizar_painel_moodle()
 
+elif st.session_state["modulo_ativo"] == "RM":
+    st.markdown("""
+    <div class="banner-modulo" style="background: linear-gradient(90deg, #7e22ce 0%, #581c87 100%); border-left: 8px solid #e9d5ff;">
+        <h2 style="margin:0;color:white;">🟪 MÓDULO 3: Avaliação de Desempenho (Consulta SQL TOTVS RM)</h2>
+        <p style="margin:4px 0 0 0;opacity:0.95;font-size:14px;">
+            Curadoria automática da consulta <b>AvaliacaoGeral</b>: filtro de Pendentes/Andamento, Períodos Vencidos e Códigos de Acesso.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    with st.expander("📥 IMPORTAR DADOS DA CONSULTA SQL DO RM (COLAR TEXTO OU CARREGAR FICHEIRO)", expanded=st.session_state["base_rm"].empty):
+        col_rm_in1, col_rm_in2 = st.columns(2)
+        with col_rm_in1:
+            txt_rm = st.text_area(
+                "Opção A: Cole (Ctrl+V) os dados copiados pelo botão da Extensão no RM:",
+                height=135,
+                placeholder="INSTRUTOR_FILTRO\tSTATUS_PROVA\tSTATUS_PERIODO\tCODPESSOA\tCODPROVA\tCODPERIODO\tNOMEPROVA\tNOMEPERIODO\tDATAINICIAL\tDATAFINAL\tCODIGO_ACESSO\tNOME\tCIDADE"
+            )
+        with col_rm_in2:
+            arqs_rm_up = st.file_uploader(
+                "Opção B: Carregar ficheiro avaliacao_rm.tsv / .xlsx baixado:",
+                type=["tsv", "csv", "txt", "xlsx", "xls"],
+                accept_multiple_files=True,
+                key="uploader_rm_files"
+            )
+
+        brm1, brm2 = st.columns([2, 1])
+        with brm1:
+            if st.button("➕ Processar e Guardar Avaliação RM", type="primary", use_container_width=True):
+                novos_rm = []
+                if txt_rm.strip():
+                    try:
+                        novos_rm.append(pd.read_csv(io.StringIO(txt_rm.strip()), sep="\t"))
+                    except Exception as e:
+                        st.error(f"Erro ao processar texto do RM: {e}")
+
+                if arqs_rm_up:
+                    for arq_r in arqs_rm_up:
+                        try:
+                            if arq_r.name.lower().endswith((".xlsx", ".xls")):
+                                novos_rm.append(pd.read_excel(arq_r))
+                            else:
+                                cont_r = arq_r.getvalue().decode("utf-8-sig", errors="ignore")
+                                sep_r = "\t" if "\t" in cont_r else (";" if ";" in cont_r else ",")
+                                novos_rm.append(pd.read_csv(io.StringIO(cont_r), sep=sep_r))
+                        except Exception as e:
+                            st.error(f"Erro ao ler ficheiro {arq_r.name}: {e}")
+
+                if novos_rm:
+                    df_lote_r = pd.concat(novos_rm, ignore_index=True)
+                    df_comb_r = pd.concat([st.session_state["base_rm"], df_lote_r], ignore_index=True)
+                    df_comb_r = indexar_base_rm(df_comb_r, st.session_state["base_faltas"], st.session_state["base_moodle"])
+                    df_comb_r = df_comb_r.drop_duplicates(
+                        subset=["CODPESSOA", "NOMEPERIODO", "NOME"], keep="last"
+                    ).reset_index(drop=True)
+                    st.session_state["base_rm"] = df_comb_r
+                    st.success(f"✅ {len(df_comb_r)} registos de Avaliação de Desempenho indexados!")
+                    st.rerun()
+        with brm2:
+            if st.button("🗑️ Limpar Base de Avaliação RM", use_container_width=True):
+                st.session_state["base_rm"] = pd.DataFrame()
+                st.rerun()
+
+    renderizar_painel_rm()
+
 elif st.session_state["modulo_ativo"] == "VISAO360":
     st.markdown("""
     <div class="banner-modulo" style="background: linear-gradient(90deg, #059669 0%, #047857 100%); border-left: 8px solid #a7f3d0;">
-        <h2 style="margin:0;color:white;">🟩 MÓDULO: Visão 360º do Jovem (Cruzamento Instantâneo)</h2>
+        <h2 style="margin:0;color:white;">🟩 MÓDULO 4: Visão 360º do Jovem (Faltas + Moodle + Avaliação RM)</h2>
         <p style="margin:4px 0 0 0;opacity:0.95;font-size:14px;">
-            Busca pré-indexada por Nome, Matrícula, Disciplina ou Turma.
+            Busca unificada e instantânea nas 3 bases simultaneamente.
         </p>
     </div>
     """, unsafe_allow_html=True)
 
     @st.fragment
     def renderizar_busca_360():
-        termo_360 = st.text_input("🔍 Digite o Nome do Jovem, Matrícula, Código da Disciplina ou Turma:")
+        termo_360 = st.text_input("🔍 Digite o Nome do Jovem, Matrícula, Código de Acesso, Disciplina ou Turma:")
         if termo_360:
             t_up = termo_360.strip().upper()
-            c360_1, c360_2 = st.columns(2)
-            with c360_1:
-                st.markdown("### 🟧 Faltas Registadas")
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.markdown("### 🟧 1. Faltas")
                 df_f = st.session_state["base_faltas"]
                 if not df_f.empty:
                     res_f = df_f[df_f["_busca_idx"].str.contains(t_up, regex=False, na=False)]
-                    cols_360_f = ["Data_Falta", "Matricula", "Nome", "Cidade", "Estado", "Disciplina", "Turma", "Turno"]
+                    cols_360_f = ["Data_Falta", "Matricula", "Nome", "Disciplina", "Turma", "Turno"]
                     st.dataframe(res_f[[c for c in cols_360_f if c in res_f.columns]], use_container_width=True, hide_index=True)
-            with c360_2:
-                st.markdown("### 🟦 Atividades Pendentes (Moodle)")
+            with c2:
+                st.markdown("### 🟦 2. Atividades Moodle")
                 df_m = st.session_state["base_moodle"]
                 if not df_m.empty:
                     res_m = df_m[df_m["_busca_idx"].str.contains(t_up, regex=False, na=False)]
-                    cols_360_m = ["Data_Coleta", "Disciplina", "Turno", "Turma", "Jovem", "Atividade"]
+                    cols_360_m = ["Data_Coleta", "Disciplina", "Turma", "Jovem", "Atividade"]
                     st.dataframe(res_m[[c for c in cols_360_m if c in res_m.columns]], use_container_width=True, hide_index=True)
+            with c3:
+                st.markdown("### 🟪 3. Avaliação RM")
+                df_r = st.session_state["base_rm"]
+                if not df_r.empty:
+                    res_r = df_r[df_r["_busca_idx"].str.contains(t_up, regex=False, na=False)]
+                    cols_360_r = ["NOME", "STATUS_PROVA", "NOMEPERIODO", "CODIGO_ACESSO", "DATAFINAL"]
+                    st.dataframe(res_r[[c for c in cols_360_r if c in res_r.columns]], use_container_width=True, hide_index=True)
 
     renderizar_busca_360()
