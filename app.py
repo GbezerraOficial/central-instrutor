@@ -4,6 +4,7 @@ import numpy as np
 import io
 import re
 import csv
+import time
 import zipfile
 import hmac
 from concurrent.futures import ThreadPoolExecutor
@@ -19,7 +20,7 @@ st.set_page_config(
 )
 
 # ==============================================================================
-# ESTILIZAÇÃO VISUAL AVANÇADA
+# ESTILIZAÇÃO VISUAL AVANÇADA (MENUS E SUBMENUS DESTACADOS)
 # ==============================================================================
 st.markdown("""
 <style>
@@ -71,13 +72,14 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 1. ESTRUTURAS DE DADOS PRÉ-COMPILADAS (VELOCIDADE O(1))
+# 1. ESTRUTURAS PRÉ-COMPILADAS E MAPEAMENTO DE INSTRUTORES
 # ==============================================================================
 UFS_BRASIL = {
     "AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS", "MT",
     "PA", "PB", "PE", "PI", "PR", "RJ", "RN", "RO", "RR", "RS", "SC", "SE", "SP", "TO"
 }
 
+LIMITE_BYTES_ARQUIVO = 50 * 1024 * 1024  # Proteção ZIP Bomb: máx 50 MB por arquivo interno
 REGEX_DATA_ARQ = re.compile(r"(\d{2})[-._](\d{2})[-._](\d{4})")
 REGEX_DISC_ARQ = re.compile(r"\s*-\s*\d{2}[-._]\d{2}[-._]\d{4}")
 REGEX_EXT_ARQ = re.compile(r"\.(xlsx?|csv|tsv)$", re.I)
@@ -132,6 +134,13 @@ for inst, turnos in BANCO_TURMAS.items():
         elif inst not in MAPA_TURMA_STR[cod_norm]:
             MAPA_TURMA_STR[cod_norm] += f" / {inst}"
 
+def sanitizar_celula(valor):
+    """Previne CSV/Excel Formula Injection higienizando símbolos de comando no início do texto."""
+    s = str(valor).strip()
+    if s and s[0] in ("=", "+", "-", "@") and "@" not in s[1:]:
+        return "'" + s
+    return s
+
 def separar_cidade_estado(texto_cid_uf):
     txt = str(texto_cid_uf).strip()
     if not txt or txt.lower() in ("nan", "none"):
@@ -154,10 +163,10 @@ def calcular_semana_vetorizado(serie_datas):
     return (iso["year"].astype(str) + "-Semana " + iso["week"].apply(lambda w: f"{int(w):02d}" if pd.notna(w) else "00")).fillna("Semana Atual")
 
 def indexar_base_faltas(df):
-    """Vetoriza e pré-indexa a base de Faltas apenas 1 vez (na importação)."""
+    """Vetoriza e pré-indexa a base de Faltas na entrada."""
     if df is None or df.empty:
         return pd.DataFrame()
-    df = df.copy()
+    df = df.copy().reset_index(drop=True)
     if "Lancado_RM" not in df.columns:
         df.insert(0, "Lancado_RM", False)
     df["Lancado_RM"] = df["Lancado_RM"].fillna(False).astype(bool)
@@ -168,7 +177,7 @@ def indexar_base_faltas(df):
         df["Matricula"] = df["ID_Jovem"]
 
     df["Matricula"] = df["Matricula"].fillna("").astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
-    df["Nome"] = df["Nome"].fillna("").astype(str).str.strip()
+    df["Nome"] = df["Nome"].fillna("").astype(str).apply(sanitizar_celula)
     df["Turma"] = df["Turma"].fillna("").astype(str).str.strip()
 
     if "Cidade" not in df.columns:
@@ -180,7 +189,6 @@ def indexar_base_faltas(df):
             df["Cidade"] = ""
             df["Estado"] = ""
 
-    # Colunas ocultas de alta velocidade para filtragem em < 8ms
     df["_turma_norm"] = df["Turma"].str.lstrip("0").str.upper()
     df["_cod_apc"] = df["_turma_norm"].str.extract(r"(APC\.?\d+)", expand=False).str.replace(".", "", regex=False).fillna("")
 
@@ -189,7 +197,7 @@ def indexar_base_faltas(df):
             df["Disciplina"] = df["Modulo_Sigla"].fillna("").astype(str)
         else:
             df["Disciplina"] = df["_cod_apc"]
-    df["Disciplina"] = df["Disciplina"].replace({"": "GERAL", "nan": "GERAL"}).fillna("GERAL")
+    df["Disciplina"] = df["Disciplina"].replace({"": "GERAL", "nan": "GERAL"}).fillna("GERAL").astype(str)
 
     if "Data_Falta" not in df.columns:
         df["Data_Falta"] = date.today().strftime("%Y-%m-%d")
@@ -197,26 +205,24 @@ def indexar_base_faltas(df):
     df["Mes_Ano"] = df["Data_Falta"].str.slice(0, 7)
     df["Semana_Ano"] = calcular_semana_vetorizado(df["Data_Falta"])
 
-    # Mapeamento vetorizado de Instrutor e Turno
     df["Instrutor"] = df["_turma_norm"].map(MAPA_TURMA_STR).fillna("Não Mapeado / Outros")
     arq_orig = df["Arquivo_Origem"].astype(str).str.upper() if "Arquivo_Origem" in df.columns else pd.Series("", index=df.index)
     cond_m = df["_turma_norm"].str.contains("M.", regex=False) | arq_orig.str.contains("MAT|_M\\.", regex=True)
     cond_v = df["_turma_norm"].str.contains("V.", regex=False) | arq_orig.str.contains("VES|_V\\.", regex=True)
     df["Turno"] = np.select([cond_m, cond_v], ["M - Manhã", "V - Tarde"], default="Outro")
 
-    # Índice único de busca textual instantânea
     df["_busca_idx"] = (
         df["Matricula"] + " " + df["Nome"] + " " + df["Cidade"].astype(str) + " " +
-        df["Estado"].astype(str) + " " + df["Disciplina"].astype(str) + " " + df["Turma"]
+        df["Estado"].astype(str) + " " + df["Disciplina"] + " " + df["Turma"]
     ).str.upper()
 
     return df
 
 def indexar_base_moodle(df):
-    """Vetoriza e pré-indexa a base do Moodle apenas 1 vez."""
+    """Vetoriza e pré-indexa a base do Moodle na entrada."""
     if df is None or df.empty:
         return pd.DataFrame()
-    df = df.copy()
+    df = df.copy().reset_index(drop=True)
     if "Data_Coleta" not in df.columns:
         df.insert(0, "Data_Coleta", date.today().strftime("%Y-%m-%d"))
     df["Data_Coleta"] = df["Data_Coleta"].astype(str).str.slice(0, 10)
@@ -225,7 +231,7 @@ def indexar_base_moodle(df):
 
     if "Jovem" not in df.columns and "Nome" in df.columns:
         df["Jovem"] = df["Nome"]
-    df["Jovem"] = df["Jovem"].fillna("").astype(str).str.strip()
+    df["Jovem"] = df["Jovem"].fillna("").astype(str).apply(sanitizar_celula)
     df["Turma"] = df["Turma"].fillna("GERAL").astype(str).str.strip()
     df["Atividade"] = df["Atividade"].fillna("").astype(str).str.strip() if "Atividade" in df.columns else ""
 
@@ -239,7 +245,7 @@ def indexar_base_moodle(df):
 
     if "Disciplina" not in df.columns:
         df["Disciplina"] = np.where(df["_cod_apc"] != "", df["_cod_apc"], "GERAL")
-    df["Disciplina"] = df["Disciplina"].fillna("GERAL").astype(str)
+    df["Disciplina"] = df["Disciplina"].replace({"": "GERAL", "nan": "GERAL"}).fillna("GERAL").astype(str)
 
     df["_busca_idx"] = (
         df["Jovem"] + " " + df["Disciplina"] + " " + df["Turma"] + " " + df["Atividade"]
@@ -303,8 +309,7 @@ def ler_xml_excel_2003(texto_xml):
     return None
 
 def converter_bytes_em_dataframe(bytes_arq, nome_arq):
-    # Atalho instantâneo: ignora os ficheiros vazios de 810 bytes sem carregar motores Excel
-    if not bytes_arq or len(bytes_arq) <= 850 or nome_arq.startswith("~$"):
+    if not bytes_arq or len(bytes_arq) <= 850 or len(bytes_arq) > LIMITE_BYTES_ARQUIVO or nome_arq.startswith("~$"):
         return None, "vazio_810b"
 
     ext = nome_arq.lower().split(".")[-1]
@@ -360,7 +365,7 @@ def extrair_alunos_do_dataframe(df_raw, nome_arq, data_padrao_str):
     disc_arquivo = REGEX_DISC_ARQ.split(nome_limpo)[0]
     disc_arquivo = REGEX_EXT_ARQ.sub("", disc_arquivo).strip()
 
-    # VIA RÁPIDA VETORIZADA: Se a planilha tem o layout padrão de >= 10 colunas (Col A=0, B=1, D=3, F=5, J=9)
+    # VIA RÁPIDA VETORIZADA (Padrão de 10+ colunas: A=0, B=1, D=3, F=5, J=9)
     if df_clean.shape[1] >= 10:
         col_j = df_clean.iloc[:, 9].dropna().astype(str)
         if not col_j.empty and col_j.str.contains("APC", case=False, na=False).any():
@@ -377,7 +382,7 @@ def extrair_alunos_do_dataframe(df_raw, nome_arq, data_padrao_str):
                 sub["Arquivo_Origem"] = nome_limpo
                 return sub[["Matricula", "Nome", "Cidade", "Estado", "Disciplina", "Turma", "Data_Falta", "Arquivo_Origem"]]
 
-    # FALLBACK LINHA A LINHA (Para planilhas fora do padrão de 10 colunas)
+    # FALLBACK CELULAR (Para planilhas fora do padrão de 10 colunas)
     registros = []
     for _, row in df_clean.iterrows():
         valores = [str(v).strip() for v in row.values if pd.notna(v) and str(v).strip() not in ("", "nan", "None")]
@@ -433,7 +438,6 @@ def _processar_unico_item(args):
 
 @st.cache_data(show_spinner=False, max_entries=10)
 def processar_lote_em_paralelo(itens_bytes_nomes, data_padrao_str):
-    """Processa dezenas de ficheiros em paralelo usando ThreadPoolExecutor e guarda em Cache."""
     tarefas = [(b, nome, data_padrao_str) for b, nome in itens_bytes_nomes]
     dfs_validos = []
     com_faltas = 0
@@ -450,19 +454,18 @@ def processar_lote_em_paralelo(itens_bytes_nomes, data_padrao_str):
     df_final = pd.concat(dfs_validos, ignore_index=True) if dfs_validos else pd.DataFrame()
     if not df_final.empty:
         df_final = indexar_base_faltas(df_final)
-    stats = {
-        "total_arquivos": len(tarefas),
-        "com_faltas": com_faltas,
-        "em_branco": em_branco
-    }
+    stats = {"total_arquivos": len(tarefas), "com_faltas": com_faltas, "em_branco": em_branco}
     return df_final, stats
 
 def extrair_itens_upload(lista_arquivos):
     itens = []
     def descompactar_zip(b_zip):
         with zipfile.ZipFile(io.BytesIO(b_zip), "r") as z:
-            for item in z.namelist():
+            for info in z.infolist():
+                item = info.filename
                 if item.endswith("/") or "__MACOSX" in item or item.split("/")[-1].startswith("~$"):
+                    continue
+                if info.file_size > LIMITE_BYTES_ARQUIVO:
                     continue
                 ilow = item.lower()
                 if ilow.endswith(".zip"):
@@ -478,20 +481,38 @@ def extrair_itens_upload(lista_arquivos):
     return itens
 
 # ==============================================================================
-# 3. LOGIN SEGURO
+# 3. LOGIN SEGURO COM PROTEÇÃO CONTRA FORÇA BRUTA
 # ==============================================================================
 def autenticar():
-    senha_sistema = st.secrets.get("SENHA_PAINEL", "1234")
     if st.session_state.get("logado", False):
         return True
+
+    if "tentativas_login" not in st.session_state:
+        st.session_state["tentativas_login"] = 0
+    if "bloqueado_ate" not in st.session_state:
+        st.session_state["bloqueado_ate"] = 0.0
+
+    agora = time.time()
+    if agora < st.session_state["bloqueado_ate"]:
+        restante = int(st.session_state["bloqueado_ate"] - agora)
+        st.error(f"⏳ Muitas tentativas incorretas. Aguarde {restante} segundos.")
+        st.stop()
+
+    senha_sistema = st.secrets.get("SENHA_PAINEL", "1234")
     st.title("🔒 Central de Acompanhamento Unificado")
     senha_dig = st.text_input("Digite a sua senha de acesso:", type="password")
     if senha_dig:
-        if hmac.compare_digest(senha_dig, str(senha_sistema)):
+        if hmac.compare_digest(senha_dig.encode("utf-8"), str(senha_sistema).encode("utf-8")):
             st.session_state["logado"] = True
+            st.session_state["tentativas_login"] = 0
             st.rerun()
         else:
-            st.error("❌ Senha incorreta.")
+            st.session_state["tentativas_login"] += 1
+            if st.session_state["tentativas_login"] >= 5:
+                st.session_state["bloqueado_ate"] = time.time() + 30
+                st.error("🚫 5 tentativas falhadas. Acesso bloqueado por 30 segundos.")
+            else:
+                st.error(f"❌ Senha incorreta ({st.session_state['tentativas_login']}/5).")
     return False
 
 if not autenticar():
@@ -663,6 +684,16 @@ def renderizar_painel_faltas():
         )
         st.session_state["base_faltas"].loc[df_editado.index, "Lancado_RM"] = df_editado["Lancado_RM"]
 
+        buf_filtro_f = io.BytesIO()
+        with pd.ExcelWriter(buf_filtro_f, engine="openpyxl") as writer:
+            df_ordenado.to_excel(writer, sheet_name="Faltas_Filtradas", index=False)
+        st.download_button(
+            label="📥 Exportar Tabela Filtrada (.xlsx)",
+            data=buf_filtro_f.getvalue(),
+            file_name=f"Faltas_Filtradas_{datetime.now().strftime('%d-%m-%Y')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
     with sub_f2:
         rank_f = (
             df_sub.groupby(["Matricula", "Nome", "Cidade", "Estado", "Turma", "Turno"], as_index=False)
@@ -758,6 +789,17 @@ def renderizar_painel_moodle():
         cols_m_ordem = ["Data_Coleta", "Instrutor", "Disciplina", "Turno", "Turma", "Atividade", "Status", "Jovem", "Email_Enviado"]
         cols_m_pres = [c for c in cols_m_ordem if c in df_m_sub.columns]
         st.dataframe(df_m_sub[cols_m_pres], use_container_width=True, hide_index=True)
+
+        buf_filtro_m = io.BytesIO()
+        with pd.ExcelWriter(buf_filtro_m, engine="openpyxl") as writer:
+            df_m_sub[cols_m_pres].to_excel(writer, sheet_name="Moodle_Filtrado", index=False)
+        st.download_button(
+            label="📥 Exportar Pendências Filtradas (.xlsx)",
+            data=buf_filtro_m.getvalue(),
+            file_name=f"Moodle_Filtrado_{datetime.now().strftime('%d-%m-%Y')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
     with sub_m2:
         datas_m = sorted(df_m["Data_Coleta"].unique().tolist())
         if len(datas_m) < 2:
@@ -847,9 +889,9 @@ elif st.session_state["modulo_ativo"] == "MOODLE":
             dt_moodle = st.date_input("📅 Data da Coleta:", value=date.today(), format="DD/MM/YYYY", key="dt_m_in")
         with cm2:
             disc_moodle_in = st.text_input(
-                "📘 Código da Disciplina / Módulo (ex: EMP_UB04, Bancário):",
+                "📘 Código da Disciplina / Módulo (Opcional — já vem automático da Extensão):",
                 value="",
-                placeholder="Se deixar em branco, identifica automaticamente pela Turma",
+                placeholder="Ex: EMP_UB04 (deixe em branco para usar o da Extensão/Turma)",
                 key="disc_m_in"
             )
 
@@ -858,7 +900,7 @@ elif st.session_state["modulo_ativo"] == "MOODLE":
             txt_m = st.text_area(
                 "Opção A: Cole (Ctrl+V) o relatório copiado pela Extensão do Moodle:",
                 height=135,
-                placeholder="Instrutor\tTurno\tTurma\tAtividade\tStatus\tJovem\tEmail_Enviado"
+                placeholder="Instrutor\tDisciplina\tTurno\tTurma\tAtividade\tStatus\tJovem\tEmail_Enviado"
             )
         with col_in_m2:
             arqs_moodle_up = st.file_uploader(
