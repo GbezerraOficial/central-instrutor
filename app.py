@@ -20,35 +20,167 @@ st.set_page_config(
 )
 
 # ==============================================================================
-# PALETA DE CORES OFICIAL ASSISTENTE MOODLE DEMÀ (EXTRAÍDA DO CONTENT.JS)
-# Primária: #001ae6 | Secundária: #1565c0 / #1a237e | Tarde: #e65100
-# Sucesso: #2e7d32 / #e8f5e9 | Erro: #c62828 / #ffebee | Neutros: #f8f9fa / #cfd8dc
+# DESIGN HARMÓNICO COMPLETO (PALETA ASSISTENTE MOODLE DEMÀ - CONTENT.JS)
+# Garante 100% de visibilidade das letras mesmo se o navegador estiver em Dark Mode
 # ==============================================================================
 st.markdown("""
 <style>
+    /* 1. Fundo Geral Suave (Cinza-Azulado Claro) e Barra de Topo Limpa */
     .stApp {
-        background-color: #f8f9fa !important;
+        background-color: #eef2f6 !important;
         color: #37474f !important;
     }
+    header[data-testid="stHeader"] {
+        background-color: #ffffff !important;
+        border-bottom: 1px solid #cfd8dc !important;
+    }
+    header[data-testid="stHeader"] * {
+        color: #1a237e !important;
+    }
+
+    /* 2. Barra Lateral Branca com Borda Azul Demà */
     section[data-testid="stSidebar"] {
         background-color: #ffffff !important;
         border-right: 2px solid #001ae6 !important;
     }
+    section[data-testid="stSidebar"] * {
+        color: #37474f !important;
+    }
+    section[data-testid="stSidebar"] h1,
+    section[data-testid="stSidebar"] h2,
+    section[data-testid="stSidebar"] h3 {
+        color: #001ae6 !important;
+    }
+
+    /* 3. Forçar Visibilidade Total de Todos os Rótulos e Textos (Fim das letras invisíveis!) */
+    [data-testid="stWidgetLabel"],
+    [data-testid="stWidgetLabel"] p,
+    [data-testid="stWidgetLabel"] span,
+    label,
+    .stMarkdown p,
+    .stCaption,
+    [data-testid="stCaptionContainer"] p {
+        color: #1a237e !important;
+        font-weight: 700 !important;
+        font-size: 13px !important;
+    }
+
+    /* 4. Caixas de Texto, Datas e Seletores Claros e Harmónicos (Fim das caixas pretas!) */
+    [data-baseweb="input"],
+    [data-baseweb="base-input"],
+    [data-baseweb="textarea"],
+    [data-baseweb="select"] > div {
+        background-color: #f8f9fa !important;
+        color: #1e293b !important;
+        border: 1.5px solid #b0bec5 !important;
+        border-radius: 8px !important;
+        transition: all 0.2s ease !important;
+    }
+    [data-baseweb="input"]:focus-within,
+    [data-baseweb="textarea"]:focus-within,
+    [data-baseweb="select"] > div:focus-within {
+        background-color: #ffffff !important;
+        border-color: #001ae6 !important;
+        box-shadow: 0 0 0 2px rgba(0, 26, 230, 0.15) !important;
+    }
+    input, textarea, [data-baseweb="select"] span, [data-baseweb="select"] div {
+        color: #1e293b !important;
+        -webkit-text-fill-color: #1e293b !important;
+        background-color: transparent !important;
+        caret-color: #001ae6 !important;
+        font-weight: 500 !important;
+    }
+    input::placeholder, textarea::placeholder {
+        color: #78909c !important;
+        -webkit-text-fill-color: #78909c !important;
+        opacity: 1 !important;
+    }
+    /* Menu Dropdown Aberto */
+    [data-baseweb="popover"],
+    [data-baseweb="menu"],
+    ul[role="listbox"],
+    li[role="option"] {
+        background-color: #ffffff !important;
+        color: #1e293b !important;
+    }
+    li[role="option"]:hover, li[role="option"][aria-selected="true"] {
+        background-color: #e3f2fd !important;
+        color: #001ae6 !important;
+        font-weight: 700 !important;
+    }
+
+    /* 5. Painel Retrátil (Expander) Claro e Elegante (Fim da barra preta!) */
+    div[data-testid="stExpander"] {
+        background-color: #ffffff !important;
+        border: 1.5px solid #cfd8dc !important;
+        border-left: 5px solid #001ae6 !important;
+        border-radius: 10px !important;
+        box-shadow: 0 4px 14px rgba(0,0,0,0.05) !important;
+        overflow: hidden !important;
+    }
+    div[data-testid="stExpander"] details {
+        background-color: #ffffff !important;
+    }
+    div[data-testid="stExpander"] summary {
+        background-color: #e3f2fd !important;
+        padding: 12px 16px !important;
+        border-bottom: 1px solid #cfd8dc !important;
+    }
+    div[data-testid="stExpander"] summary p,
+    div[data-testid="stExpander"] summary span,
+    div[data-testid="stExpander"] summary svg {
+        color: #0d47a1 !important;
+        fill: #0d47a1 !important;
+        font-weight: 800 !important;
+        font-size: 14px !important;
+    }
+
+    /* 6. Área de Upload de Ficheiros (Dropzone) Clara */
+    [data-testid="stFileUploaderDropzone"] {
+        background-color: #f8f9fa !important;
+        border: 2px dashed #1565c0 !important;
+        border-radius: 10px !important;
+        padding: 16px !important;
+    }
+    [data-testid="stFileUploaderDropzone"] div,
+    [data-testid="stFileUploaderDropzone"] span,
+    [data-testid="stFileUploaderDropzone"] small,
+    [data-testid="stFileUploaderDropzone"] svg {
+        color: #1a237e !important;
+        fill: #1565c0 !important;
+    }
+    [data-testid="stFileUploaderDropzone"] button {
+        background-color: #001ae6 !important;
+        color: #ffffff !important;
+        border: none !important;
+        border-radius: 6px !important;
+        font-weight: 700 !important;
+    }
+    [data-testid="stFileUploaderDropzone"] button * {
+        color: #ffffff !important;
+    }
+
+    /* 7. Botões Principais e Secundários */
     div.stButton > button {
         border-radius: 8px !important;
         font-weight: 700 !important;
         font-size: 13.5px !important;
         padding: 10px 14px !important;
         transition: all 0.2s ease !important;
-        background-color: #eceff1 !important;
+        background-color: #ffffff !important;
         color: #1a237e !important;
-        border: 1px solid #b0bec5 !important;
+        border: 1.5px solid #b0bec5 !important;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.04) !important;
+    }
+    div.stButton > button p, div.stButton > button span {
+        color: #1a237e !important;
+        font-weight: 700 !important;
     }
     div.stButton > button:hover {
         transform: translateY(-1px);
         border-color: #001ae6 !important;
-        color: #001ae6 !important;
-        box-shadow: 0 4px 12px rgba(0, 26, 230, 0.18) !important;
+        background-color: #e3f2fd !important;
+        box-shadow: 0 4px 12px rgba(0, 26, 230, 0.15) !important;
     }
     div.stButton > button[kind="primary"] {
         background-color: #001ae6 !important;
@@ -56,13 +188,30 @@ st.markdown("""
         border: 2px solid #001ae6 !important;
         box-shadow: 0 4px 14px rgba(0, 26, 230, 0.28) !important;
     }
+    div.stButton > button[kind="primary"] p,
+    div.stButton > button[kind="primary"] span {
+        color: #ffffff !important;
+    }
     div.stButton > button[kind="primary"]:hover {
         background-color: #1565c0 !important;
         border-color: #1565c0 !important;
+    }
+
+    /* 8. Botões de Download */
+    div.stDownloadButton > button {
+        background-color: #2e7d32 !important;
+        color: #ffffff !important;
+        border: none !important;
+        border-radius: 8px !important;
+        font-weight: 700 !important;
+    }
+    div.stDownloadButton > button p, div.stDownloadButton > button span {
         color: #ffffff !important;
     }
+
+    /* 9. Abas (Submenus) */
     button[data-baseweb="tab"] {
-        background-color: #eceff1 !important;
+        background-color: #ffffff !important;
         color: #37474f !important;
         border-radius: 8px 8px 0 0 !important;
         padding: 10px 18px !important;
@@ -72,11 +221,20 @@ st.markdown("""
         border: 1px solid #cfd8dc !important;
         border-bottom: none !important;
     }
+    button[data-baseweb="tab"] p {
+        color: #37474f !important;
+        font-weight: 700 !important;
+    }
     button[data-baseweb="tab"][aria-selected="true"] {
         background-color: #001ae6 !important;
         color: #ffffff !important;
         border: 2px solid #001ae6 !important;
     }
+    button[data-baseweb="tab"][aria-selected="true"] p {
+        color: #ffffff !important;
+    }
+
+    /* 10. Cartões de Métricas */
     div[data-testid="stMetric"] {
         background-color: #ffffff !important;
         border: 1px solid #cfd8dc !important;
@@ -85,20 +243,16 @@ st.markdown("""
         border-radius: 8px !important;
         box-shadow: 0 2px 8px rgba(0,0,0,0.05) !important;
     }
-    div[data-testid="stMetricLabel"] > div {
+    div[data-testid="stMetricLabel"] p, div[data-testid="stMetricLabel"] div {
         color: #1a237e !important;
         font-weight: 700 !important;
     }
-    div[data-testid="stMetricValue"] > div {
+    div[data-testid="stMetricValue"] div {
         color: #001ae6 !important;
         font-weight: 800 !important;
     }
-    div[data-testid="stExpander"] {
-        background-color: #ffffff !important;
-        border: 1px solid #cfd8dc !important;
-        border-left: 4px solid #001ae6 !important;
-        border-radius: 8px !important;
-    }
+
+    /* 11. Banners Superiores dos Módulos */
     .banner-dema {
         background: #ffffff;
         border: 2px solid #001ae6;
@@ -106,7 +260,7 @@ st.markdown("""
         padding: 14px 20px;
         border-radius: 12px;
         margin-bottom: 16px;
-        box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+        box-shadow: 0 4px 16px rgba(0,0,0,0.06);
         font-family: Arial, sans-serif;
     }
     .visor-sucesso {
@@ -173,7 +327,6 @@ BANCO_TURMAS = {
 }
 
 def normalizar_codigo_turma(s):
-    """Normalização idêntica à função normalizarCodigoTurma do content.js."""
     txt = str(s or "").upper().strip()
     txt = re.sub(r"^0+(\d)", r"\1", txt)
     txt = re.sub(r"^4\.0\.APC", "4.APC", txt)
