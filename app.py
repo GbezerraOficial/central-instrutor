@@ -7,6 +7,7 @@ import csv
 import time
 import zipfile
 import hmac
+import hashlib
 from concurrent.futures import ThreadPoolExecutor
 from html.parser import HTMLParser
 import xml.etree.ElementTree as ET
@@ -20,108 +21,176 @@ st.set_page_config(
 )
 
 # ==============================================================================
-# DESIGN 100% ADAPTATIVO AO TEMA DO NAVEGADOR (DARK MODE & LIGHT MODE)
-# Usa as variáveis nativas var(--text-color) e var(--secondary-background-color)
-# garantindo contraste máximo sem letras invisíveis em nenhum navegador.
+# 1. LOGIN COM DIFERENCIAÇÃO AUTOMÁTICA: UTILIZADOR FINAL vs ADMINISTRADOR
 # ==============================================================================
-st.markdown("""
-<style>
-    /* 1. Barra Lateral com destaque Azul Demà adaptativo */
-    section[data-testid="stSidebar"] {
-        border-right: 2px solid #2563eb !important;
-    }
+def autenticar():
+    if st.session_state.get("logado", False):
+        return True
 
-    /* 2. Rótulos dos Filtros e Textos sempre na cor nativa de alto contraste do tema */
+    if "tentativas_login" not in st.session_state:
+        st.session_state["tentativas_login"] = 0
+    if "bloqueado_ate" not in st.session_state:
+        st.session_state["bloqueado_ate"] = 0.0
+
+    agora = time.time()
+    if agora < st.session_state["bloqueado_ate"]:
+        restante = int(st.session_state["bloqueado_ate"] - agora)
+        st.error(f"⏳ Muitas tentativas incorretas. Aguarde {restante} segundos.")
+        st.stop()
+
+    senha_usuario = str(st.secrets.get("SENHA_PAINEL", "1234"))
+    senha_admin = str(st.secrets.get("SENHA_ADMIN", "admin2026"))
+
+    st.markdown("""
+    <div style="background-color:var(--secondary-background-color);border:1.5px solid rgba(37,99,235,0.45);border-left:8px solid #2563eb;padding:16px 22px;border-radius:12px;margin-bottom:16px;">
+        <h2 style="margin:0;color:var(--text-color);">⚡ Central Demà & RM — Equipe Bojador</h2>
+        <p style="margin:4px 0 0 0;color:var(--text-color);opacity:0.85;font-size:14px;">
+            Insira a sua credencial de acesso (Utilizador ou Administrador).
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    senha_dig = st.text_input("Senha de acesso:", type="password")
+    if senha_dig:
+        dig_bytes = senha_dig.encode("utf-8")
+        if hmac.compare_digest(dig_bytes, senha_admin.encode("utf-8")):
+            st.session_state["logado"] = True
+            st.session_state["is_admin"] = True
+            st.session_state["tentativas_login"] = 0
+            st.rerun()
+        elif hmac.compare_digest(dig_bytes, senha_usuario.encode("utf-8")):
+            st.session_state["logado"] = True
+            st.session_state["is_admin"] = False
+            st.session_state["tentativas_login"] = 0
+            st.rerun()
+        else:
+            st.session_state["tentativas_login"] += 1
+            if st.session_state["tentativas_login"] >= 5:
+                st.session_state["bloqueado_ate"] = time.time() + 30
+                st.error("🚫 5 tentativas falhadas. Acesso bloqueado por 30 segundos.")
+            else:
+                st.error(f"❌ Senha incorreta ({st.session_state['tentativas_login']}/5).")
+    return False
+
+# Bloqueia os ícones de topo na tela de login por padrão
+if not st.session_state.get("logado", False):
+    st.markdown("""
+    <style>
+        [data-testid="stToolbarActions"], [data-testid="stAppDeployButton"],
+        .stAppDeployButton, header[data-testid="stHeader"] a,
+        [data-testid="manage-app-button"], footer { display: none !important; }
+    </style>
+    """, unsafe_allow_html=True)
+
+if not autenticar():
+    st.stop()
+
+# ==============================================================================
+# 2. DESIGN 100% ADAPTATIVO (CLARO/ESCURO) + OCULTAÇÃO DE ÍCONES PARA NÃO-ADMINS
+# ==============================================================================
+css_ocultar_icones_usuario = ""
+if not st.session_state.get("is_admin", False):
+    # Oculta Share, Estrela, Lápis, GitHub e Manage App, mantendo APENAS os 3 pontinhos (⋮ -> Theme)
+    css_ocultar_icones_usuario = """
+    [data-testid="stToolbarActions"],
+    [data-testid="stToolbarActionButton"],
+    [data-testid="stAppDeployButton"],
+    .stAppDeployButton,
+    header[data-testid="stHeader"] a,
+    [data-testid="manage-app-button"],
+    div[class*="viewerBadge"],
+    footer {
+        display: none !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
+    }
+    """
+
+st.markdown(f"""
+<style>
+    {css_ocultar_icones_usuario}
+
+    section[data-testid="stSidebar"] {{
+        border-right: 2px solid #2563eb !important;
+    }}
     [data-testid="stWidgetLabel"] p,
     [data-testid="stWidgetLabel"] span,
-    label {
+    label {{
         color: var(--text-color) !important;
         font-weight: 700 !important;
         font-size: 13px !important;
-    }
-
-    /* 3. Caixas de Filtro (Selectbox, Input, Textarea) com borda visível e texto nativo */
+    }}
     [data-baseweb="input"],
     [data-baseweb="base-input"],
     [data-baseweb="textarea"],
-    [data-baseweb="select"] > div {
+    [data-baseweb="select"] > div {{
         border: 1.5px solid rgba(128, 128, 128, 0.4) !important;
         border-radius: 8px !important;
         transition: all 0.15s ease !important;
-    }
+    }}
     [data-baseweb="input"]:focus-within,
     [data-baseweb="textarea"]:focus-within,
-    [data-baseweb="select"] > div:focus-within {
+    [data-baseweb="select"] > div:focus-within {{
         border-color: #2563eb !important;
         box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.25) !important;
-    }
-
-    /* 4. Painel Retrátil (Expander) Adaptativo */
-    div[data-testid="stExpander"] {
+    }}
+    div[data-testid="stExpander"] {{
         background-color: var(--secondary-background-color) !important;
         border: 1px solid rgba(128, 128, 128, 0.3) !important;
         border-left: 5px solid #2563eb !important;
         border-radius: 10px !important;
         overflow: hidden !important;
-    }
+    }}
     div[data-testid="stExpander"] summary p,
-    div[data-testid="stExpander"] summary span {
+    div[data-testid="stExpander"] summary span {{
         color: var(--text-color) !important;
         font-weight: 800 !important;
         font-size: 14px !important;
-    }
-
-    /* 5. Área de Upload (Dropzone) Adaptativa */
-    [data-testid="stFileUploaderDropzone"] {
+    }}
+    [data-testid="stFileUploaderDropzone"] {{
         border: 2px dashed #2563eb !important;
         border-radius: 10px !important;
-    }
-
-    /* 6. Botões Principais e Secundários Adaptativos */
-    div.stButton > button {
+    }}
+    div.stButton > button {{
         border-radius: 8px !important;
         font-weight: 700 !important;
         font-size: 13.5px !important;
         padding: 10px 14px !important;
         transition: all 0.15s ease !important;
         border: 1.5px solid rgba(128, 128, 128, 0.35) !important;
-    }
-    div.stButton > button:hover {
+    }}
+    div.stButton > button:hover {{
         transform: translateY(-1px);
         border-color: #2563eb !important;
         box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25) !important;
-    }
-    div.stButton > button[kind="primary"] {
+    }}
+    div.stButton > button[kind="primary"] {{
         background: linear-gradient(135deg, #001ae6 0%, #2563eb 100%) !important;
         color: #ffffff !important;
         border: none !important;
         box-shadow: 0 4px 14px rgba(0, 26, 230, 0.3) !important;
-    }
+    }}
     div.stButton > button[kind="primary"] p,
-    div.stButton > button[kind="primary"] span {
+    div.stButton > button[kind="primary"] span {{
         color: #ffffff !important;
-    }
-
-    /* 7. Botão de Exportar Excel em Verde Sucesso */
-    div.stDownloadButton > button {
+    }}
+    div.stDownloadButton > button {{
         background-color: #2e7d32 !important;
         color: #ffffff !important;
         border: none !important;
         border-radius: 8px !important;
         font-weight: 700 !important;
-    }
+    }}
     div.stDownloadButton > button p,
-    div.stDownloadButton > button span {
+    div.stDownloadButton > button span {{
         color: #ffffff !important;
-    }
-
-    /* 8. Abas Principais e Sub-Abas (100% legíveis em Claro e Escuro + Troca em 0ms) */
-    div[data-baseweb="tab-list"] {
+    }}
+    div[data-baseweb="tab-list"] {{
         gap: 8px !important;
         background-color: transparent !important;
         padding-bottom: 6px !important;
-    }
-    button[data-baseweb="tab"] {
+    }}
+    button[data-baseweb="tab"] {{
         background-color: var(--secondary-background-color) !important;
         color: var(--text-color) !important;
         border-radius: 8px !important;
@@ -132,48 +201,44 @@ st.markdown("""
         flex: 1 !important;
         justify-content: center !important;
         transition: all 0.15s ease !important;
-    }
+    }}
     button[data-baseweb="tab"] p,
-    button[data-baseweb="tab"] span {
+    button[data-baseweb="tab"] span {{
         color: var(--text-color) !important;
         font-weight: 700 !important;
         font-size: 13.5px !important;
-    }
-    button[data-baseweb="tab"]:hover {
+    }}
+    button[data-baseweb="tab"]:hover {{
         border-color: #3b82f6 !important;
-    }
-    button[data-baseweb="tab"][aria-selected="true"] {
+    }}
+    button[data-baseweb="tab"][aria-selected="true"] {{
         background: linear-gradient(135deg, #001ae6 0%, #2563eb 100%) !important;
         color: #ffffff !important;
         border: 1.5px solid #3b82f6 !important;
         box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35) !important;
-    }
+    }}
     button[data-baseweb="tab"][aria-selected="true"] p,
-    button[data-baseweb="tab"][aria-selected="true"] span {
+    button[data-baseweb="tab"][aria-selected="true"] span {{
         color: #ffffff !important;
-    }
-
-    /* 9. Cartões de Métricas Adaptativos */
-    div[data-testid="stMetric"] {
+    }}
+    div[data-testid="stMetric"] {{
         background-color: var(--secondary-background-color) !important;
         border: 1px solid rgba(128, 128, 128, 0.25) !important;
         border-left: 5px solid #2563eb !important;
         padding: 12px 16px !important;
         border-radius: 8px !important;
-    }
+    }}
     div[data-testid="stMetricLabel"] p,
-    div[data-testid="stMetricLabel"] div {
+    div[data-testid="stMetricLabel"] div {{
         color: var(--text-color) !important;
         opacity: 0.85;
         font-weight: 700 !important;
-    }
-    div[data-testid="stMetricValue"] div {
+    }}
+    div[data-testid="stMetricValue"] div {{
         color: var(--text-color) !important;
         font-weight: 800 !important;
-    }
-
-    /* 10. Banners e Títulos Adaptativos */
-    .banner-dema {
+    }}
+    .banner-dema {{
         background-color: var(--secondary-background-color);
         border: 1.5px solid rgba(37, 99, 235, 0.45);
         border-left: 8px solid #2563eb;
@@ -181,26 +246,26 @@ st.markdown("""
         border-radius: 12px;
         margin-bottom: 16px;
         font-family: Arial, sans-serif;
-    }
-    .banner-dema h2 {
+    }}
+    .banner-dema h2 {{
         margin: 0;
         color: var(--text-color) !important;
         font-size: 22px;
         font-weight: 800;
-    }
-    .banner-dema p {
+    }}
+    .banner-dema p {{
         margin: 4px 0 0 0;
         color: var(--text-color) !important;
         opacity: 0.88;
         font-size: 13.5px;
-    }
-    .titulo-secao {
+    }}
+    .titulo-secao {{
         color: var(--text-color) !important;
         font-weight: 800 !important;
         margin-top: 4px !important;
         margin-bottom: 8px !important;
-    }
-    .visor-sucesso {
+    }}
+    .visor-sucesso {{
         background-color: rgba(46, 125, 50, 0.15);
         border: 1px solid #2e7d32;
         border-left: 5px solid #2e7d32;
@@ -209,12 +274,12 @@ st.markdown("""
         border-radius: 8px;
         font-weight: 700;
         margin-bottom: 12px;
-    }
+    }}
 </style>
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 1. BANCO DE DADOS ATUALIZADO (OUTUBRO 2026) + FUNÇÕES CACHEADAS DE EXPORTAÇÃO
+# 3. BANCO DE TURMAS (OUTUBRO 2026) E FUNÇÕES DE RESET DE FILTROS
 # ==============================================================================
 UFS_BRASIL = {
     "AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS", "MT",
@@ -267,6 +332,45 @@ BANCO_TURMAS_PADRAO = {
         "V": ["4.0.APC02.2V.91", "4.0.APC02.3V.91", "4.0.APC02.4V.91", "4.APC02.2V.100", "4.APC02.2V.85", "4.APC02.2V.94", "4.APC02.3V.78", "4.APC02.4V.100", "4.APC02.4V.71", "4.APC02.4V.96", "671.APC.02.4V.100", "671.APC02.2V.100", "671.APC02.2V.104", "671.APC02.2V.106", "671.APC02.2V.71", "671.APC02.2V.78", "671.APC02.2V.91", "671.APC02.2V.96", "671.APC02.2V.98", "671.APC02.3V.106", "671.APC02.3V.71", "671.APC02.3V.78", "671.APC02.3V.96", "671.APC02.4V.104", "671.APC02.4V.54", "671.APC02.4V.71", "671.APC02.4V.78", "671.APC02.4V.85", "671.APC02.4V.97", "671.APC02.4V.98", "671.APC02.5V.71"]
     }
 }
+
+# Callbacks de Limpeza Instantânea de Filtros (Executam antes de renderizar os widgets)
+def limpar_filtros_faltas():
+    st.session_state["f_inst"] = "🌟 Todos os Instrutores"
+    st.session_state["f_disc"] = "Todas as Disciplinas"
+    st.session_state["f_modo"] = "📅 Dia"
+    st.session_state["f_dia"] = "Todos os Dias"
+    st.session_state["f_sem"] = "Todas as Semanas"
+    st.session_state["f_mes"] = "Todos os Meses"
+    st.session_state["f_turno"] = "Todos (M + V)"
+    st.session_state["f_busca"] = ""
+
+def limpar_filtros_moodle():
+    st.session_state["m_inst"] = "🌟 Todos os Instrutores"
+    st.session_state["m_disc"] = "Todas as Disciplinas"
+    st.session_state["m_modo"] = "📅 Dia"
+    st.session_state["m_dia"] = "Todos os Dias"
+    st.session_state["m_sem"] = "Todas as Semanas"
+    st.session_state["m_mes"] = "Todos os Meses"
+    st.session_state["m_turno"] = "Todos (M + V)"
+    st.session_state["m_busca"] = ""
+
+def limpar_filtros_rm():
+    st.session_state["r_inst"] = "🌟 Todos os Instrutores"
+    if not st.session_state.get("base_rm", pd.DataFrame()).empty:
+        status_disp = sorted(st.session_state["base_rm"]["STATUS_PROVA"].unique().tolist())
+        st.session_state["r_st_prova"] = [s for s in status_disp if s.upper() != "FINALIZADO"] or status_disp
+    st.session_state["r_st_per"] = "Todos"
+    st.session_state["r_ciclo"] = "Todos os Períodos"
+    st.session_state["r_busca"] = ""
+
+def limpar_filtros_360():
+    st.session_state["busca_360_input"] = ""
+
+def limpar_todos_os_filtros_global():
+    limpar_filtros_faltas()
+    limpar_filtros_moodle()
+    limpar_filtros_rm()
+    limpar_filtros_360()
 
 def normalizar_codigo_turma(s):
     txt = str(s or "").upper().strip()
@@ -689,7 +793,7 @@ def filtrar_rapido_por_instrutor(df_alvo, nome_instrutor):
     return df_alvo[mask_turma | mask_inst]
 
 # ==============================================================================
-# 2. LEITOR UNIVERSAL PARALELO E CACHEADO (@st.cache_data)
+# 4. LEITOR UNIVERSAL PARALELO E CACHEADO (@st.cache_data)
 # ==============================================================================
 class ExtratorTabelaHTML(HTMLParser):
     def __init__(self):
@@ -905,49 +1009,6 @@ def extrair_itens_upload(lista_arquivos):
             itens.append((arq.getvalue(), arq.name))
     return itens
 
-# ==============================================================================
-# 3. LOGIN SEGURO COM PROTEÇÃO CONTRA FORÇA BRUTA
-# ==============================================================================
-def autenticar():
-    if st.session_state.get("logado", False):
-        return True
-
-    if "tentativas_login" not in st.session_state:
-        st.session_state["tentativas_login"] = 0
-    if "bloqueado_ate" not in st.session_state:
-        st.session_state["bloqueado_ate"] = 0.0
-
-    agora = time.time()
-    if agora < st.session_state["bloqueado_ate"]:
-        restante = int(st.session_state["bloqueado_ate"] - agora)
-        st.error(f"⏳ Muitas tentativas incorretas. Aguarde {restante} segundos.")
-        st.stop()
-
-    senha_sistema = st.secrets.get("SENHA_PAINEL", "1234")
-    st.markdown("""
-    <div class="banner-dema">
-        <h2>⚡ Central Demà & RM — Equipe Bojador</h2>
-        <p>Insira a sua credencial de acesso para abrir os módulos.</p>
-    </div>
-    """, unsafe_allow_html=True)
-    senha_dig = st.text_input("Senha de acesso:", type="password")
-    if senha_dig:
-        if hmac.compare_digest(senha_dig.encode("utf-8"), str(senha_sistema).encode("utf-8")):
-            st.session_state["logado"] = True
-            st.session_state["tentativas_login"] = 0
-            st.rerun()
-        else:
-            st.session_state["tentativas_login"] += 1
-            if st.session_state["tentativas_login"] >= 5:
-                st.session_state["bloqueado_ate"] = time.time() + 30
-                st.error("🚫 5 tentativas falhadas. Acesso bloqueado por 30 segundos.")
-            else:
-                st.error(f"❌ Senha incorreta ({st.session_state['tentativas_login']}/5).")
-    return False
-
-if not autenticar():
-    st.stop()
-
 if "base_moodle" not in st.session_state:
     st.session_state["base_moodle"] = pd.DataFrame()
 if "base_faltas" not in st.session_state:
@@ -956,11 +1017,20 @@ if "base_rm" not in st.session_state:
     st.session_state["base_rm"] = pd.DataFrame()
 
 # ==============================================================================
-# 4. BARRA LATERAL: BANCO DE TURMAS (OUT.2026) + BACKUP UNIFICADO CACHEADO
+# 5. BARRA LATERAL: BACKUP AUTOMÁTICO + FERRAMENTAS EXCLUSIVAS DE ADMIN
 # ==============================================================================
 with st.sidebar:
     st.markdown("<h3 class='titulo-secao'>⚡ Suíte Equipe Bojador</h3>", unsafe_allow_html=True)
-    st.caption("Base de Turmas: **Outubro 2026 (339 turmas)**")
+    if st.session_state.get("is_admin", False):
+        st.success("👑 Modo Administrador Ativo")
+    else:
+        st.caption("👤 Modo Utilizador")
+
+    st.button(
+        "🔄 Limpar Todos os Filtros (Geral)",
+        on_click=limpar_todos_os_filtros_global,
+        use_container_width=True
+    )
 
     st.checkbox(
         f"🚫 Ocultar {len(st.session_state['turmas_desativadas'])} turmas 'A ser desativada'",
@@ -968,33 +1038,25 @@ with st.sidebar:
         key="ocultar_desativadas"
     )
 
-    with st.expander("🔄 Atualizar Grade de Turmas (.xlsx)"):
-        arq_grade = st.file_uploader("Subir nova planilha de Grade Horária:", type=["xlsx", "xls"], key="up_grade")
-        if arq_grade and st.button("✅ Aplicar Nova Grade", use_container_width=True):
-            ok, msg = atualizar_banco_via_planilha_grade(arq_grade)
-            if ok:
-                st.success(msg)
-                st.rerun()
-            else:
-                st.error(msg)
-
     st.divider()
-    st.caption("Backup Unificado (**Faltas + Moodle + Avaliação RM**):")
-    arq_hist = st.file_uploader("📂 Restaurar Histórico (.xlsx):", type=["xlsx"])
-    if arq_hist and st.button("🔄 Carregar Histórico", use_container_width=True):
-        xls = pd.ExcelFile(arq_hist)
-        if "Historico_Moodle" in xls.sheet_names:
-            st.session_state["base_moodle"] = indexar_base_moodle(pd.read_excel(xls, "Historico_Moodle"))
-        if "Historico_Faltas" in xls.sheet_names:
-            st.session_state["base_faltas"] = indexar_base_faltas(pd.read_excel(xls, "Historico_Faltas"))
-        if "Historico_RM" in xls.sheet_names:
-            st.session_state["base_rm"] = indexar_base_rm(
-                pd.read_excel(xls, "Historico_RM"),
-                st.session_state["base_faltas"],
-                st.session_state["base_moodle"]
-            )
-        st.success("✅ Histórico completo restaurado!")
-        st.rerun()
+    st.caption("📂 **Backup Unificado (Carregamento Automático):**")
+    arq_hist = st.file_uploader("Solte o Histórico (.xlsx) para restaurar:", type=["xlsx"], key="up_hist_auto")
+    if arq_hist:
+        ass_hist = f"{arq_hist.name}_{arq_hist.size}"
+        if st.session_state.get("ultimo_hist_carregado") != ass_hist:
+            xls = pd.ExcelFile(arq_hist)
+            if "Historico_Moodle" in xls.sheet_names:
+                st.session_state["base_moodle"] = indexar_base_moodle(pd.read_excel(xls, "Historico_Moodle"))
+            if "Historico_Faltas" in xls.sheet_names:
+                st.session_state["base_faltas"] = indexar_base_faltas(pd.read_excel(xls, "Historico_Faltas"))
+            if "Historico_RM" in xls.sheet_names:
+                st.session_state["base_rm"] = indexar_base_rm(
+                    pd.read_excel(xls, "Historico_RM"),
+                    st.session_state["base_faltas"],
+                    st.session_state["base_moodle"]
+                )
+            st.session_state["ultimo_hist_carregado"] = ass_hist
+            st.rerun()
 
     tem_dados = any(not st.session_state[k].empty for k in ["base_moodle", "base_faltas", "base_rm"])
     if tem_dados:
@@ -1012,6 +1074,41 @@ with st.sidebar:
             use_container_width=True
         )
 
+    # Ferramentas restritas ao Administrador (Guilherme)
+    if st.session_state.get("is_admin", False):
+        st.divider()
+        with st.expander("👑 Painel do Administrador"):
+            arq_grade = st.file_uploader("Atualizar Grade Horária (.xlsx):", type=["xlsx", "xls"], key="up_grade_auto")
+            if arq_grade:
+                ass_grade = f"{arq_grade.name}_{arq_grade.size}"
+                if st.session_state.get("ultima_grade_lida") != ass_grade:
+                    ok, msg = atualizar_banco_via_planilha_grade(arq_grade)
+                    st.session_state["ultima_grade_lida"] = ass_grade
+                    if ok:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+
+            if st.button("🗑️ Zerar Todas as Bases da Memória", use_container_width=True):
+                st.session_state["base_faltas"] = pd.DataFrame()
+                st.session_state["base_moodle"] = pd.DataFrame()
+                st.session_state["base_rm"] = pd.DataFrame()
+                st.session_state["ultimos_arquivos_lidos"] = []
+                st.session_state["ultimos_arquivos_moodle"] = []
+                st.session_state["ultimos_arquivos_rm"] = []
+                st.rerun()
+    else:
+        st.divider()
+        with st.expander("🔑 Acesso Admin"):
+            senha_adm_side = st.text_input("Chave de Administrador:", type="password", key="adm_unlock")
+            if senha_adm_side:
+                if hmac.compare_digest(senha_adm_side.encode("utf-8"), str(st.secrets.get("SENHA_ADMIN", "admin2026")).encode("utf-8")):
+                    st.session_state["is_admin"] = True
+                    st.rerun()
+                else:
+                    st.error("Chave incorreta.")
+
 # ==============================================================================
 # FRAGMENTO 1: PAINEL DE FALTAS
 # ==============================================================================
@@ -1021,7 +1118,12 @@ def renderizar_painel_faltas():
     if df_f.empty:
         return
 
-    st.markdown("<h4 class='titulo-secao'>⚡ Filtros Instantâneos (Instrutor, Código da Disciplina, Período e Turno)</h4>", unsafe_allow_html=True)
+    col_tit_f, col_btn_f = st.columns([3.2, 1])
+    with col_tit_f:
+        st.markdown("<h4 class='titulo-secao'>⚡ Filtros Instantâneos (Instrutor, Código da Disciplina, Período e Turno)</h4>", unsafe_allow_html=True)
+    with col_btn_f:
+        st.button("🔄 Limpar Filtros Aplicados", on_click=limpar_filtros_faltas, key="btn_limpar_f_top", use_container_width=True)
+
     f1, f2, f3, f4, f5, f6 = st.columns([1.4, 1.4, 0.9, 1.1, 0.9, 1.2])
 
     with f1:
@@ -1055,7 +1157,9 @@ def renderizar_painel_faltas():
         codigos_disc = sorted(df_sub["Disciplina"].unique().tolist())
         codigos_apc = sorted([c for c in df_sub["_cod_apc"].unique().tolist() if c and c not in codigos_disc])
         opcoes_disc_f = ["Todas as Disciplinas"] + codigos_disc + [f"Código Turma: {a}" for a in codigos_apc]
-        sel_disc_f = st.selectbox("📘 2. Código da Disciplina:", opcoes_disc_f, index=0, key="f_disc")
+        if st.session_state.get("f_disc") not in opcoes_disc_f:
+            st.session_state["f_disc"] = "Todas as Disciplinas"
+        sel_disc_f = st.selectbox("📘 2. Código da Disciplina:", opcoes_disc_f, key="f_disc")
     with f5:
         sel_turno_f = st.selectbox("🕒 4. Turno:", ["Todos (M + V)", "M - Manhã", "V - Tarde"], key="f_turno")
     with f6:
@@ -1074,7 +1178,7 @@ def renderizar_painel_faltas():
         df_sub = df_sub[df_sub["_busca_idx"].str.contains(busca_f.strip().upper(), regex=False, na=False)]
 
     if df_sub.empty:
-        st.warning("⚠️ Nenhum registo encontrado para esta combinação de filtros.")
+        st.warning("⚠️ Nenhum registo encontrado para esta combinação de filtros. Clique em '🔄 Limpar Filtros Aplicados'.")
         return
 
     m1, m2, m3, m4, m5 = st.columns(5)
@@ -1150,7 +1254,12 @@ def renderizar_painel_moodle():
     if df_m.empty:
         return
 
-    st.markdown("<h4 class='titulo-secao'>⚡ Filtros Instantâneos do Moodle (Instrutor, Disciplina, Período e Turno)</h4>", unsafe_allow_html=True)
+    col_tit_m, col_btn_m = st.columns([3.2, 1])
+    with col_tit_m:
+        st.markdown("<h4 class='titulo-secao'>⚡ Filtros Instantâneos do Moodle (Instrutor, Disciplina, Período e Turno)</h4>", unsafe_allow_html=True)
+    with col_btn_m:
+        st.button("🔄 Limpar Filtros Aplicados", on_click=limpar_filtros_moodle, key="btn_limpar_m_top", use_container_width=True)
+
     mc1, mc2, mc3, mc4, mc5, mc6 = st.columns([1.4, 1.4, 0.9, 1.1, 0.9, 1.2])
     with mc1:
         opcoes_inst_m = ["🌟 Todos os Instrutores"] + list(st.session_state["banco_turmas_atual"].keys()) + ["Não Mapeado / Outros"]
@@ -1183,7 +1292,9 @@ def renderizar_painel_moodle():
         disc_m_disp = sorted(df_m_sub["Disciplina"].unique().tolist())
         apc_m_disp = sorted([c for c in df_m_sub["_cod_apc"].unique().tolist() if c and c not in disc_m_disp])
         opcoes_disc_m = ["Todas as Disciplinas"] + disc_m_disp + [f"Código Turma: {a}" for a in apc_m_disp]
-        sel_disc_m = st.selectbox("📘 2. Código da Disciplina:", opcoes_disc_m, index=0, key="m_disc")
+        if st.session_state.get("m_disc") not in opcoes_disc_m:
+            st.session_state["m_disc"] = "Todas as Disciplinas"
+        sel_disc_m = st.selectbox("📘 2. Código da Disciplina:", opcoes_disc_m, key="m_disc")
     with mc5:
         sel_turno_m = st.selectbox("🕒 4. Turno:", ["Todos (M + V)", "M - Manhã", "V - Tarde"], key="m_turno")
     with mc6:
@@ -1200,6 +1311,10 @@ def renderizar_painel_moodle():
         df_m_sub = df_m_sub[df_m_sub["Turno"] == sel_turno_m]
     if busca_m:
         df_m_sub = df_m_sub[df_m_sub["_busca_idx"].str.contains(busca_m.strip().upper(), regex=False, na=False)]
+
+    if df_m_sub.empty:
+        st.warning("⚠️ Nenhum registo encontrado para esta combinação de filtros. Clique em '🔄 Limpar Filtros Aplicados'.")
+        return
 
     km1, km2, km3, km4, km5 = st.columns(5)
     km1.metric("Pendências Listadas", len(df_m_sub))
@@ -1250,7 +1365,12 @@ def renderizar_painel_rm():
     if df_r.empty:
         return
 
-    st.markdown("<h4 class='titulo-secao'>⚡ Filtros Instantâneos da Avaliação de Desempenho (RM)</h4>", unsafe_allow_html=True)
+    col_tit_r, col_btn_r = st.columns([3.2, 1])
+    with col_tit_r:
+        st.markdown("<h4 class='titulo-secao'>⚡ Filtros Instantâneos da Avaliação de Desempenho (RM)</h4>", unsafe_allow_html=True)
+    with col_btn_r:
+        st.button("🔄 Limpar Filtros Aplicados", on_click=limpar_filtros_rm, key="btn_limpar_r_top", use_container_width=True)
+
     rc1, rc2, rc3, rc4, rc5 = st.columns([1.4, 1.3, 1.2, 1.3, 1.4])
 
     with rc1:
@@ -1278,6 +1398,10 @@ def renderizar_painel_rm():
         df_r_sub = df_r_sub[df_r_sub["NOMEPERIODO"] == sel_nome_per]
     if busca_r:
         df_r_sub = df_r_sub[df_r_sub["_busca_idx"].str.contains(busca_r.strip().upper(), regex=False, na=False)]
+
+    if df_r_sub.empty:
+        st.warning("⚠️ Nenhum registo encontrado para esta combinação de filtros. Clique em '🔄 Limpar Filtros Aplicados'.")
+        return
 
     kr1, kr2, kr3, kr4, kr5 = st.columns(5)
     kr1.metric("Registos no Filtro", len(df_r_sub))
@@ -1334,7 +1458,7 @@ def renderizar_painel_rm():
         st.dataframe(resumo_ciclo, use_container_width=True, hide_index=True)
 
 # ==============================================================================
-# 5. NAVEGAÇÃO PRINCIPAL POR ABAS NATIVAS (TRANSIÇÃO 0ms + 100% ADAPTATIVA)
+# 6. NAVEGAÇÃO PRINCIPAL POR ABAS NATIVAS (TRANSIÇÃO 0ms + 100% AUTOMÁTICA)
 # ==============================================================================
 st.markdown("<h3 class='titulo-secao'>⚡ Central de Acompanhamento Demà & RM</h3>", unsafe_allow_html=True)
 qtd_faltas = len(st.session_state["base_faltas"])
@@ -1349,25 +1473,26 @@ aba_mod_faltas, aba_mod_moodle, aba_mod_rm, aba_mod_360 = st.tabs([
 ])
 
 # ------------------------------------------------------------------------------
-# ABA 1: CONTROLE DE FALTAS
+# ABA 1: CONTROLE DE FALTAS (CARREGAMENTO AUTOMÁTICO)
 # ------------------------------------------------------------------------------
 with aba_mod_faltas:
     st.markdown("""
     <div class="banner-dema" style="border-left-color:#e65100;">
         <h2>📅 MÓDULO 1: Controle de Faltas (SharePoint ➔ Diário de Classe RM)</h2>
-        <p>Leitura Paralela Multi-Thread + Filtragem Instantânea: <b>Matrícula, Nome, Cidade, Estado, Disciplina, Turma e Turno</b>.</p>
+        <p>Carregamento Automático: solte o <b>.ZIP</b> ou as planilhas <b>.XLS / .XLSX</b> e os dados aparecem imediatamente.</p>
     </div>
     """, unsafe_allow_html=True)
 
-    with st.expander("📥 IMPORTAR FOLHAS DE CÁLCULO OU PACOTE .ZIP DE FALTAS", expanded=st.session_state["base_faltas"].empty):
+    with st.expander("📥 IMPORTAR FOLHAS DE CÁLCULO OU PACOTE .ZIP DE FALTAS (Carregamento Automático)", expanded=st.session_state["base_faltas"].empty):
         c_dt, c_up = st.columns([1, 2.5])
         with c_dt:
             data_ref = st.date_input("📅 Data padrão:", value=date.today(), format="DD/MM/YYYY")
-            if st.button("🗑️ Limpar Base de Faltas", use_container_width=True):
-                st.session_state["base_faltas"] = pd.DataFrame()
-                st.session_state["ultimos_arquivos_lidos"] = []
-                st.session_state.pop("ultimo_diagnostico", None)
-                st.rerun()
+            st.button(
+                "🔄 Limpar Filtros Aplicados",
+                on_click=limpar_filtros_faltas,
+                key="btn_limpar_f_exp",
+                use_container_width=True
+            )
 
         with c_up:
             arquivos_up = st.file_uploader(
@@ -1405,182 +1530,175 @@ with aba_mod_faltas:
     renderizar_painel_faltas()
 
 # ------------------------------------------------------------------------------
-# ABA 2: ATIVIDADES MOODLE
+# ABA 2: ATIVIDADES MOODLE (CARREGAMENTO AUTOMÁTICO SEM CLICAR EM BOTÃO!)
 # ------------------------------------------------------------------------------
 with aba_mod_moodle:
     st.markdown("""
     <div class="banner-dema">
         <h2>📚 MÓDULO 2: Acompanhamento de Atividades (Moodle Demà Digital)</h2>
-        <p>Importação por Texto ou Planilhas (<b>.TSV, .CSV, .XLSX, .XLS</b>) e filtragem instantânea por <b>Instrutor</b> e <b>Disciplina</b>.</p>
+        <p>Carregamento Automático: solte as planilhas/ficheiros (<b>.TSV, .CSV, .XLSX, .XLS, .ZIP</b>) ou cole o relatório e os dados aparecem na hora.</p>
     </div>
     """, unsafe_allow_html=True)
 
-    with st.expander("📥 ADICIONAR COLETA DO MOODLE (COLAR TEXTO OU CARREGAR PLANILHAS)", expanded=st.session_state["base_moodle"].empty):
-        cm1, cm2 = st.columns(2)
+    with st.expander("📥 IMPORTAR DADOS DO MOODLE (Carregamento Automático ao Soltar ou Colar)", expanded=st.session_state["base_moodle"].empty):
+        cm1, cm2, cm3 = st.columns([1, 1.5, 1])
         with cm1:
             dt_moodle = st.date_input("📅 Data da Coleta:", value=date.today(), format="DD/MM/YYYY", key="dt_m_in")
         with cm2:
             disc_moodle_in = st.text_input(
-                "📘 Código da Disciplina / Módulo (Opcional — automático pela Extensão):",
+                "📘 Código da Disciplina (Opcional):",
                 value="",
-                placeholder="Ex: EMP_UB04 (deixe em branco para usar o da Extensão/Turma)",
+                placeholder="Automático pela Extensão/Turma",
                 key="disc_m_in"
+            )
+        with cm3:
+            st.write("")
+            st.button(
+                "🔄 Limpar Filtros Aplicados",
+                on_click=limpar_filtros_moodle,
+                key="btn_limpar_m_exp",
+                use_container_width=True
             )
 
         col_in_m1, col_in_m2 = st.columns(2)
         with col_in_m1:
             txt_m = st.text_area(
-                "Opção A: Cole (Ctrl+V) o relatório copiado pela Extensão do Moodle:",
-                height=135,
-                placeholder="Instrutor\tDisciplina\tTurno\tTurma\tAtividade\tStatus\tJovem\tEmail_Enviado"
+                "Opção A: Cole (Ctrl+V) o relatório da Extensão (processa automaticamente):",
+                height=125,
+                placeholder="Instrutor\tDisciplina\tTurno\tTurma\tAtividade\tStatus\tJovem\tEmail_Enviado",
+                key="txt_moodle_auto"
             )
         with col_in_m2:
             arqs_moodle_up = st.file_uploader(
-                "Opção B: Carregar Planilhas / Ficheiros do Moodle (.tsv, .csv, .xlsx, .xls):",
-                type=["tsv", "csv", "txt", "xlsx", "xls"],
+                "Opção B: Arraste Planilhas / Ficheiros do Moodle (.tsv, .csv, .xlsx, .xls, .zip):",
+                type=["tsv", "csv", "txt", "xlsx", "xls", "zip"],
                 accept_multiple_files=True,
                 key="uploader_moodle_files"
             )
 
-        bm1, bm2 = st.columns([2, 1])
-        with bm1:
-            if st.button("➕ Guardar Coleta no Painel", type="primary", use_container_width=True):
-                novos_m = []
-                if txt_m.strip():
+        # PROCESSAMENTO AUTOMÁTICO MOODLE (TEXTO COLADO OU FICHEIROS SOLTOS)
+        hash_txt_m = hashlib.md5(txt_m.strip().encode("utf-8")).hexdigest() if txt_m.strip() else ""
+        ass_arqs_m = [f"{a.name}_{a.size}" for a in arqs_moodle_up] if arqs_moodle_up else []
+        assinatura_moodle_atual = f"{hash_txt_m}_{ass_arqs_m}_{dt_moodle}_{disc_moodle_in.strip()}"
+
+        if (txt_m.strip() or arqs_moodle_up) and st.session_state.get("ultima_assinatura_moodle") != assinatura_moodle_atual:
+            novos_m = []
+            if txt_m.strip():
+                try:
+                    df_tm = pd.read_csv(io.StringIO(txt_m.strip()), sep="\t")
+                    if not df_tm.empty:
+                        novos_m.append(df_tm)
+                except Exception as e:
+                    st.error(f"Erro ao ler texto colado: {e}")
+
+            if arqs_moodle_up:
+                itens_m = extrair_itens_upload(arqs_moodle_up)
+                for b_item, nome_item in itens_m:
                     try:
-                        novos_m.append(pd.read_csv(io.StringIO(txt_m.strip()), sep="\t"))
+                        nome_m = nome_item.lower()
+                        if nome_m.endswith((".xlsx", ".xls")):
+                            df_m_arq, _ = converter_bytes_em_dataframe(b_item, nome_item)
+                            if df_m_arq is not None and not df_m_arq.empty:
+                                prim_linha = [str(x).strip() for x in df_m_arq.iloc[0].values]
+                                if any(k in " ".join(prim_linha).upper() for k in ["TURMA", "JOVEM", "ATIVIDADE"]):
+                                    df_m_arq.columns = prim_linha
+                                    df_m_arq = df_m_arq.iloc[1:].reset_index(drop=True)
+                                novos_m.append(df_m_arq)
+                        else:
+                            conteudo_m = b_item.decode("utf-8-sig", errors="ignore")
+                            sep_m = "\t" if "\t" in conteudo_m else (";" if ";" in conteudo_m else ",")
+                            df_cm = pd.read_csv(io.StringIO(conteudo_m), sep=sep_m)
+                            if not df_cm.empty:
+                                novos_m.append(df_cm)
                     except Exception as e:
-                        st.error(f"Erro ao ler texto colado: {e}")
+                        st.error(f"Erro ao ler ficheiro {nome_item}: {e}")
 
-                if arqs_moodle_up:
-                    for arq_m in arqs_moodle_up:
-                        try:
-                            nome_m = arq_m.name.lower()
-                            if nome_m.endswith((".xlsx", ".xls")):
-                                df_m_arq, _ = converter_bytes_em_dataframe(arq_m.getvalue(), arq_m.name)
-                                if df_m_arq is not None and not df_m_arq.empty:
-                                    prim_linha = [str(x).strip() for x in df_m_arq.iloc[0].values]
-                                    if any(k in " ".join(prim_linha).upper() for k in ["TURMA", "JOVEM", "ATIVIDADE"]):
-                                        df_m_arq.columns = prim_linha
-                                        df_m_arq = df_m_arq.iloc[1:].reset_index(drop=True)
-                                    novos_m.append(df_m_arq)
-                            else:
-                                conteudo_m = arq_m.getvalue().decode("utf-8-sig", errors="ignore")
-                                sep_m = "\t" if "\t" in conteudo_m else (";" if ";" in conteudo_m else ",")
-                                novos_m.append(pd.read_csv(io.StringIO(conteudo_m), sep=sep_m))
-                        except Exception as e:
-                            st.error(f"Erro ao ler ficheiro {arq_m.name}: {e}")
-
-                if novos_m:
-                    df_lote = pd.concat(novos_m, ignore_index=True)
-                    df_lote["Data_Coleta"] = dt_moodle.strftime("%Y-%m-%d")
-                    if disc_moodle_in.strip():
-                        df_lote["Disciplina"] = disc_moodle_in.strip()
-                    df_lote = indexar_base_moodle(df_lote)
-                    df_comb_m = pd.concat([st.session_state["base_moodle"], df_lote], ignore_index=True)
-                    df_comb_m = df_comb_m.drop_duplicates(
-                        subset=["Data_Coleta", "Disciplina", "Turma", "Atividade", "Jovem"], keep="last"
-                    ).reset_index(drop=True)
-                    st.session_state["base_moodle"] = df_comb_m
-                    st.success("✅ Coleta do Moodle guardada e indexada!")
-                    st.rerun()
-        with bm2:
-            if st.button("🗑️ Limpar Base do Moodle", use_container_width=True):
-                st.session_state["base_moodle"] = pd.DataFrame()
+            st.session_state["ultima_assinatura_moodle"] = assinatura_moodle_atual
+            if novos_m:
+                df_lote = pd.concat(novos_m, ignore_index=True)
+                df_lote["Data_Coleta"] = dt_moodle.strftime("%Y-%m-%d")
+                if disc_moodle_in.strip():
+                    df_lote["Disciplina"] = disc_moodle_in.strip()
+                df_lote = indexar_base_moodle(df_lote)
+                df_comb_m = pd.concat([st.session_state["base_moodle"], df_lote], ignore_index=True)
+                df_comb_m = df_comb_m.drop_duplicates(
+                    subset=["Data_Coleta", "Disciplina", "Turma", "Atividade", "Jovem"], keep="last"
+                ).reset_index(drop=True)
+                st.session_state["base_moodle"] = df_comb_m
                 st.rerun()
 
     renderizar_painel_moodle()
 
 # ------------------------------------------------------------------------------
-# ABA 3: AVALIAÇÃO DE DESEMPENHO (TOTVS RM)
+# ABA 3: AVALIAÇÃO DE DESEMPENHO RM (CARREGAMENTO AUTOMÁTICO SEM CLICAR EM BOTÃO!)
 # ------------------------------------------------------------------------------
 with aba_mod_rm:
     st.markdown("""
     <div class="banner-dema" style="border-left-color:#1565c0;">
         <h2>📝 MÓDULO 3: Avaliação de Desempenho (Consulta SQL TOTVS RM)</h2>
-        <p>Curadoria automática da consulta <b>AvaliacaoGeral</b>: filtro de Pendentes/Andamento, Períodos Vencidos e Códigos de Acesso.</p>
+        <p>Carregamento Automático: solte o ficheiro <b>avaliacao_rm.tsv / .xlsx / .zip</b> ou cole os dados e a curadoria aparece imediatamente.</p>
     </div>
     """, unsafe_allow_html=True)
 
-    with st.expander("📥 IMPORTAR DADOS DA CONSULTA SQL DO RM (COLAR TEXTO OU CARREGAR FICHEIRO)", expanded=st.session_state["base_rm"].empty):
+    with st.expander("📥 IMPORTAR DADOS DA CONSULTA SQL DO RM (Carregamento Automático)", expanded=st.session_state["base_rm"].empty):
         col_rm_in1, col_rm_in2 = st.columns(2)
         with col_rm_in1:
             txt_rm = st.text_area(
                 "Opção A: Cole (Ctrl+V) os dados copiados pelo botão da Extensão no RM:",
-                height=135,
-                placeholder="INSTRUTOR_FILTRO\tSTATUS_PROVA\tSTATUS_PERIODO\tCODPESSOA\tCODPROVA\tCODPERIODO\tNOMEPROVA\tNOMEPERIODO\tDATAINICIAL\tDATAFINAL\tCODIGO_ACESSO\tNOME\tCIDADE"
+                height=125,
+                placeholder="INSTRUTOR_FILTRO\tSTATUS_PROVA\tSTATUS_PERIODO\tCODPESSOA\tCODPROVA\tCODPERIODO\tNOMEPROVA\tNOMEPERIODO\tDATAINICIAL\tDATAFINAL\tCODIGO_ACESSO\tNOME\tCIDADE",
+                key="txt_rm_auto"
             )
         with col_rm_in2:
             arqs_rm_up = st.file_uploader(
-                "Opção B: Carregar ficheiro avaliacao_rm.tsv / .xlsx baixado:",
-                type=["tsv", "csv", "txt", "xlsx", "xls"],
+                "Opção B: Arraste o ficheiro avaliacao_rm.tsv / .xlsx / .zip baixado:",
+                type=["tsv", "csv", "txt", "xlsx", "xls", "zip"],
                 accept_multiple_files=True,
                 key="uploader_rm_files"
             )
 
-        if arqs_rm_up:
-            assinatura_rm = [f"{a.name}_{a.size}" for a in arqs_rm_up]
-            if st.session_state.get("ultimos_arquivos_rm") != assinatura_rm:
-                novos_rm_auto = []
-                for arq_r in arqs_rm_up:
+        st.button(
+            "🔄 Limpar Filtros Aplicados",
+            on_click=limpar_filtros_rm,
+            key="btn_limpar_r_exp",
+            use_container_width=True
+        )
+
+        # PROCESSAMENTO AUTOMÁTICO AVALIAÇÃO RM (TEXTO OU FICHEIROS)
+        hash_txt_r = hashlib.md5(txt_rm.strip().encode("utf-8")).hexdigest() if txt_rm.strip() else ""
+        ass_arqs_r = [f"{a.name}_{a.size}" for a in arqs_rm_up] if arqs_rm_up else []
+        assinatura_rm_atual = f"{hash_txt_r}_{ass_arqs_r}"
+
+        if (txt_rm.strip() or arqs_rm_up) and st.session_state.get("ultima_assinatura_rm") != assinatura_rm_atual:
+            novos_rm_auto = []
+            if txt_rm.strip():
+                df_txt_r = ler_texto_rm_blindado(txt_rm.strip())
+                if not df_txt_r.empty:
+                    novos_rm_auto.append(df_txt_r)
+
+            if arqs_rm_up:
+                itens_r = extrair_itens_upload(arqs_rm_up)
+                for b_item, nome_item in itens_r:
                     try:
-                        if arq_r.name.lower().endswith((".xlsx", ".xls")):
-                            df_r_temp = pd.read_excel(arq_r)
+                        if nome_item.lower().endswith((".xlsx", ".xls")):
+                            df_r_temp = pd.read_excel(io.BytesIO(b_item))
                         else:
-                            cont_r = arq_r.getvalue().decode("utf-8-sig", errors="ignore")
+                            cont_r = b_item.decode("utf-8-sig", errors="ignore")
                             df_r_temp = ler_texto_rm_blindado(cont_r)
                         if not df_r_temp.empty:
                             novos_rm_auto.append(df_r_temp)
                     except Exception as e:
-                        st.error(f"Erro ao ler ficheiro {arq_r.name}: {e}")
+                        st.error(f"Erro ao ler ficheiro {nome_item}: {e}")
 
-                st.session_state["ultimos_arquivos_rm"] = assinatura_rm
-                if novos_rm_auto:
-                    df_lote_r = pd.concat(novos_rm_auto, ignore_index=True)
-                    df_comb_r = pd.concat([st.session_state["base_rm"], df_lote_r], ignore_index=True)
-                    df_comb_r = indexar_base_rm(df_comb_r, st.session_state["base_faltas"], st.session_state["base_moodle"])
-                    df_comb_r = df_comb_r.drop_duplicates(
-                        subset=["CODPESSOA", "NOMEPERIODO", "NOME"], keep="last"
-                    ).reset_index(drop=True)
-                    st.session_state["base_rm"] = df_comb_r
-                    st.rerun()
-
-        brm1, brm2 = st.columns([2, 1])
-        with brm1:
-            if st.button("➕ Processar e Guardar Avaliação RM", type="primary", use_container_width=True):
-                novos_rm = []
-                if txt_rm.strip():
-                    df_txt_r = ler_texto_rm_blindado(txt_rm.strip())
-                    if not df_txt_r.empty:
-                        novos_rm.append(df_txt_r)
-
-                if arqs_rm_up:
-                    for arq_r in arqs_rm_up:
-                        try:
-                            if arq_r.name.lower().endswith((".xlsx", ".xls")):
-                                df_r_temp = pd.read_excel(arq_r)
-                            else:
-                                cont_r = arq_r.getvalue().decode("utf-8-sig", errors="ignore")
-                                df_r_temp = ler_texto_rm_blindado(cont_r)
-                            if not df_r_temp.empty:
-                                novos_rm.append(df_r_temp)
-                        except Exception as e:
-                            st.error(f"Erro ao ler ficheiro {arq_r.name}: {e}")
-
-                if novos_rm:
-                    df_lote_r = pd.concat(novos_rm, ignore_index=True)
-                    df_comb_r = pd.concat([st.session_state["base_rm"], df_lote_r], ignore_index=True)
-                    df_comb_r = indexar_base_rm(df_comb_r, st.session_state["base_faltas"], st.session_state["base_moodle"])
-                    df_comb_r = df_comb_r.drop_duplicates(
-                        subset=["CODPESSOA", "NOMEPERIODO", "NOME"], keep="last"
-                    ).reset_index(drop=True)
-                    st.session_state["base_rm"] = df_comb_r
-                    st.success(f"✅ {len(df_comb_r)} registos de Avaliação de Desempenho indexados!")
-                    st.rerun()
-        with brm2:
-            if st.button("🗑️ Limpar Base de Avaliação RM", use_container_width=True):
-                st.session_state["base_rm"] = pd.DataFrame()
-                st.session_state["ultimos_arquivos_rm"] = []
+            st.session_state["ultima_assinatura_rm"] = assinatura_rm_atual
+            if novos_rm_auto:
+                df_lote_r = pd.concat(novos_rm_auto, ignore_index=True)
+                df_comb_r = pd.concat([st.session_state["base_rm"], df_lote_r], ignore_index=True)
+                df_comb_r = indexar_base_rm(df_comb_r, st.session_state["base_faltas"], st.session_state["base_moodle"])
+                df_comb_r = df_comb_r.drop_duplicates(
+                    subset=["CODPESSOA", "NOMEPERIODO", "NOME"], keep="last"
+                ).reset_index(drop=True)
+                st.session_state["base_rm"] = df_comb_r
                 st.rerun()
 
     renderizar_painel_rm()
@@ -1598,7 +1716,16 @@ with aba_mod_360:
 
     @st.fragment
     def renderizar_busca_360():
-        termo_360 = st.text_input("🔍 Digite o Nome do Jovem, Matrícula, Código de Acesso, Disciplina ou Turma:")
+        c_b360, c_lim360 = st.columns([3.2, 1])
+        with c_b360:
+            termo_360 = st.text_input(
+                "🔍 Digite o Nome do Jovem, Matrícula, Código de Acesso, Disciplina ou Turma:",
+                key="busca_360_input"
+            )
+        with c_lim360:
+            st.write("")
+            st.button("🔄 Limpar Filtro de Busca", on_click=limpar_filtros_360, use_container_width=True)
+
         if termo_360:
             t_up = termo_360.strip().upper()
             c1, c2, c3 = st.columns(3)
