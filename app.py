@@ -13,66 +13,117 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, date
 
 st.set_page_config(
-    page_title="Central do Instrutor - Painel Unificado",
-    page_icon="📊",
+    page_title="Central Demà & RM - Equipe Bojador",
+    page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 # ==============================================================================
-# ESTILIZAÇÃO VISUAL AVANÇADA (MENUS E SUBMENUS DESTACADOS)
+# PALETA DE CORES OFICIAL ASSISTENTE MOODLE DEMÀ (EXTRAÍDA DO CONTENT.JS)
+# Primária: #001ae6 | Secundária: #1565c0 / #1a237e | Tarde: #e65100
+# Sucesso: #2e7d32 / #e8f5e9 | Erro: #c62828 / #ffebee | Neutros: #f8f9fa / #cfd8dc
 # ==============================================================================
 st.markdown("""
 <style>
+    .stApp {
+        background-color: #f8f9fa !important;
+        color: #37474f !important;
+    }
+    section[data-testid="stSidebar"] {
+        background-color: #ffffff !important;
+        border-right: 2px solid #001ae6 !important;
+    }
     div.stButton > button {
-        border-radius: 10px !important;
+        border-radius: 8px !important;
         font-weight: 700 !important;
-        font-size: 14px !important;
-        padding: 12px 12px !important;
-        transition: all 0.15s ease-in-out !important;
-        border: 2px solid #334155 !important;
+        font-size: 13.5px !important;
+        padding: 10px 14px !important;
+        transition: all 0.2s ease !important;
+        background-color: #eceff1 !important;
+        color: #1a237e !important;
+        border: 1px solid #b0bec5 !important;
     }
     div.stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 16px rgba(56, 189, 248, 0.35) !important;
-        border-color: #38bdf8 !important;
+        transform: translateY(-1px);
+        border-color: #001ae6 !important;
+        color: #001ae6 !important;
+        box-shadow: 0 4px 12px rgba(0, 26, 230, 0.18) !important;
+    }
+    div.stButton > button[kind="primary"] {
+        background-color: #001ae6 !important;
+        color: #ffffff !important;
+        border: 2px solid #001ae6 !important;
+        box-shadow: 0 4px 14px rgba(0, 26, 230, 0.28) !important;
+    }
+    div.stButton > button[kind="primary"]:hover {
+        background-color: #1565c0 !important;
+        border-color: #1565c0 !important;
+        color: #ffffff !important;
     }
     button[data-baseweb="tab"] {
-        background-color: #1e293b !important;
-        color: #cbd5e1 !important;
+        background-color: #eceff1 !important;
+        color: #37474f !important;
         border-radius: 8px 8px 0 0 !important;
-        padding: 11px 18px !important;
+        padding: 10px 18px !important;
         margin-right: 6px !important;
         font-weight: 700 !important;
-        font-size: 14px !important;
-        border: 1px solid #334155 !important;
+        font-size: 13.5px !important;
+        border: 1px solid #cfd8dc !important;
         border-bottom: none !important;
     }
     button[data-baseweb="tab"][aria-selected="true"] {
-        background: linear-gradient(135deg, #0284c7 0%, #2563eb 100%) !important;
+        background-color: #001ae6 !important;
         color: #ffffff !important;
-        border: 2px solid #38bdf8 !important;
-        box-shadow: 0 -4px 12px rgba(56, 189, 248, 0.3) !important;
+        border: 2px solid #001ae6 !important;
     }
     div[data-testid="stMetric"] {
-        background-color: #0f172a;
-        border: 1px solid #334155;
-        border-left: 5px solid #38bdf8;
-        padding: 12px 16px;
-        border-radius: 10px;
+        background-color: #ffffff !important;
+        border: 1px solid #cfd8dc !important;
+        border-left: 5px solid #001ae6 !important;
+        padding: 12px 16px !important;
+        border-radius: 8px !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.05) !important;
     }
-    .banner-modulo {
-        padding: 16px 22px;
+    div[data-testid="stMetricLabel"] > div {
+        color: #1a237e !important;
+        font-weight: 700 !important;
+    }
+    div[data-testid="stMetricValue"] > div {
+        color: #001ae6 !important;
+        font-weight: 800 !important;
+    }
+    div[data-testid="stExpander"] {
+        background-color: #ffffff !important;
+        border: 1px solid #cfd8dc !important;
+        border-left: 4px solid #001ae6 !important;
+        border-radius: 8px !important;
+    }
+    .banner-dema {
+        background: #ffffff;
+        border: 2px solid #001ae6;
+        border-left: 8px solid #001ae6;
+        padding: 14px 20px;
         border-radius: 12px;
-        margin-bottom: 18px;
-        color: white;
+        margin-bottom: 16px;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.08);
         font-family: Arial, sans-serif;
+    }
+    .visor-sucesso {
+        background: #e8f5e9;
+        border: 1px solid #a5d6a7;
+        border-left: 4px solid #2e7d32;
+        color: #1b5e20;
+        padding: 10px 14px;
+        border-radius: 6px;
+        font-weight: bold;
+        margin-bottom: 12px;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 1. ESTRUTURAS PRÉ-COMPILADAS E BANCO DE TURMAS DOS 8 INSTRUTORES
+# 1. ESTRUTURAS PRÉ-COMPILADAS E BANCO DE TURMAS (SINCRONIZADO COM CONTENT.JS)
 # ==============================================================================
 UFS_BRASIL = {
     "AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS", "MT",
@@ -121,13 +172,22 @@ BANCO_TURMAS = {
     }
 }
 
+def normalizar_codigo_turma(s):
+    """Normalização idêntica à função normalizarCodigoTurma do content.js."""
+    txt = str(s or "").upper().strip()
+    txt = re.sub(r"^0+(\d)", r"\1", txt)
+    txt = re.sub(r"^4\.0\.APC", "4.APC", txt)
+    txt = re.sub(r"\.APC\.(\d)", r".APC\1", txt)
+    txt = re.sub(r"\.0+(\d+)$", r".\1", txt)
+    return txt
+
 MAPA_TURMA_STR = {}
 SET_TURMAS_POR_INSTRUTOR = {}
 
 for inst, turnos in BANCO_TURMAS.items():
     SET_TURMAS_POR_INSTRUTOR[inst] = set()
     for cod in turnos["M"] + turnos["V"]:
-        cod_norm = cod.strip().lstrip("0").upper()
+        cod_norm = normalizar_codigo_turma(cod)
         SET_TURMAS_POR_INSTRUTOR[inst].add(cod_norm)
         if cod_norm not in MAPA_TURMA_STR:
             MAPA_TURMA_STR[cod_norm] = inst
@@ -162,10 +222,6 @@ def calcular_semana_vetorizado(serie_datas):
     return (iso["year"].astype(str) + "-Semana " + iso["week"].apply(lambda w: f"{int(w):02d}" if pd.notna(w) else "00")).fillna("Semana Atual")
 
 def ler_texto_rm_blindado(texto_bruto):
-    """
-    Lê qualquer TSV/CSV do RM garantindo que cabeçalhos sem linhas sejam ignorados
-    e que colunas extras à direita nunca desloquem nem dupliquem colunas.
-    """
     linhas = [l for l in texto_bruto.splitlines() if l.strip()]
     if len(linhas) <= 1:
         return pd.DataFrame()
@@ -233,7 +289,7 @@ def indexar_base_faltas(df):
             df["Cidade"] = ""
             df["Estado"] = ""
 
-    df["_turma_norm"] = df["Turma"].str.lstrip("0").str.upper()
+    df["_turma_norm"] = df["Turma"].apply(normalizar_codigo_turma)
     df["_cod_apc"] = df["_turma_norm"].str.extract(r"(APC\.?\d+)", expand=False).str.replace(".", "", regex=False).fillna("")
 
     if "Disciplina" not in df.columns:
@@ -278,7 +334,7 @@ def indexar_base_moodle(df):
     df["Turma"] = df["Turma"].fillna("GERAL").astype(str).str.strip()
     df["Atividade"] = df["Atividade"].fillna("").astype(str).str.strip() if "Atividade" in df.columns else ""
 
-    df["_turma_norm"] = df["Turma"].str.lstrip("0").str.upper()
+    df["_turma_norm"] = df["Turma"].apply(normalizar_codigo_turma)
     df["_cod_apc"] = df["_turma_norm"].str.extract(r"(APC\.?\d+)", expand=False).str.replace(".", "", regex=False).fillna("")
     df["Instrutor"] = df["_turma_norm"].map(MAPA_TURMA_STR).fillna("Não Mapeado / Outros")
 
@@ -297,17 +353,11 @@ def indexar_base_moodle(df):
     return df
 
 def indexar_base_rm(df, df_faltas=None, df_moodle=None):
-    """
-    Vetoriza e pré-indexa a base de Avaliação do TOTVS RM com trava anti-duplicação
-    de colunas (imune ao ValueError em np.where).
-    """
     if df is None or df.empty:
         return pd.DataFrame()
 
-    # 1. Remove qualquer coluna duplicada de entrada
     df = df.loc[:, ~df.columns.duplicated()].copy().reset_index(drop=True)
 
-    # 2. Mapeamento com bloqueio de duplicidade (cada destino só pode ser atribuído 1 vez)
     mapa_exato = {
         "STATUS_PROVA": "STATUS_PROVA",
         "STATUS_PERIODO": "STATUS_PERIODO",
@@ -364,7 +414,6 @@ def indexar_base_rm(df, df_faltas=None, df_moodle=None):
     df = df.rename(columns=col_map)
     df = df.loc[:, ~df.columns.duplicated()].copy()
 
-    # Se não havia coluna nomeada 'Turma', verifica se alguma coluna extra possui códigos '.APC'
     if "Turma" not in df.columns:
         for c in df.columns:
             amostra = df[c].dropna().astype(str).head(25)
@@ -387,7 +436,6 @@ def indexar_base_rm(df, df_faltas=None, df_moodle=None):
     df["NOME"] = df["NOME"].apply(sanitizar_celula)
     df["_nome_upper"] = df["NOME"].str.upper()
 
-    # Cruzamento com Faltas e Moodle para descobrir Turma e Matrícula pelo Nome
     mapa_nome_turma = {}
     mapa_nome_mat = {}
     if df_moodle is not None and not df_moodle.empty and "Jovem" in df_moodle.columns and "Turma" in df_moodle.columns:
@@ -411,7 +459,7 @@ def indexar_base_rm(df, df_faltas=None, df_moodle=None):
         df["Turma"] = np.where(mask_vazia, turma_cruzada, serie_turma)
 
     df["Matricula"] = df["_nome_upper"].map(mapa_nome_mat).fillna(df["CODPESSOA"])
-    df["_turma_norm"] = df["Turma"].astype(str).str.lstrip("0").str.upper()
+    df["_turma_norm"] = pd.Series(df["Turma"], index=df.index).apply(normalizar_codigo_turma)
 
     inst_base = pd.Series("", index=df.index)
     if "Instrutor_RM" in df.columns:
@@ -688,8 +736,13 @@ def autenticar():
         st.stop()
 
     senha_sistema = st.secrets.get("SENHA_PAINEL", "1234")
-    st.title("🔒 Central de Acompanhamento Unificado")
-    senha_dig = st.text_input("Digite a sua senha de acesso:", type="password")
+    st.markdown("""
+    <div class="banner-dema">
+        <h2 style="margin:0;color:#001ae6;">⚡ Central Demà & RM — Equipe Bojador</h2>
+        <p style="margin:4px 0 0 0;color:#37474f;font-size:14px;">Insira a sua credencial de acesso para abrir os módulos.</p>
+    </div>
+    """, unsafe_allow_html=True)
+    senha_dig = st.text_input("Senha de acesso:", type="password")
     if senha_dig:
         if hmac.compare_digest(senha_dig.encode("utf-8"), str(senha_sistema).encode("utf-8")):
             st.session_state["logado"] = True
@@ -720,9 +773,9 @@ if "modulo_ativo" not in st.session_state:
 # 4. BARRA LATERAL: BACKUP UNIFICADO DAS 3 ETAPAS (.XLSX)
 # ==============================================================================
 with st.sidebar:
-    st.markdown("### 🗄️ BACKUP HISTÓRICO (.XLSX)")
-    st.caption("Guarde ou restaure as 3 bases (**Faltas + Moodle + Avaliação RM**) num único Excel:")
-    arq_hist = st.file_uploader("📂 Restaurar Histórico Salvo:", type=["xlsx"])
+    st.markdown("<h3 style='color:#001ae6;margin-bottom:4px;'>⚡ Suíte Equipe Bojador</h3>", unsafe_allow_html=True)
+    st.caption("Backup Unificado (**Faltas + Moodle + Avaliação RM**):")
+    arq_hist = st.file_uploader("📂 Restaurar Histórico (.xlsx):", type=["xlsx"])
     if arq_hist and st.button("🔄 Carregar Histórico", use_container_width=True):
         xls = pd.ExcelFile(arq_hist)
         if "Historico_Moodle" in xls.sheet_names:
@@ -763,26 +816,26 @@ with st.sidebar:
 # ==============================================================================
 # 5. MENU PRINCIPAL COM AS 4 ÁREAS DO SISTEMA
 # ==============================================================================
-st.markdown("## 🧭 Menu Principal de Módulos")
+st.markdown("<h3 style='color:#1a237e;margin-top:0;'>⚡ Central de Acompanhamento Demà & RM</h3>", unsafe_allow_html=True)
 qtd_faltas = len(st.session_state["base_faltas"])
 qtd_moodle = len(st.session_state["base_moodle"])
 qtd_rm = len(st.session_state["base_rm"])
 
 nav1, nav2, nav3, nav4 = st.columns(4)
 with nav1:
-    if st.button(f"🟧 1. FALTAS ({qtd_faltas})", use_container_width=True, type="primary" if st.session_state["modulo_ativo"] == "FALTAS" else "secondary"):
+    if st.button(f"📅 1. FALTAS ({qtd_faltas})", use_container_width=True, type="primary" if st.session_state["modulo_ativo"] == "FALTAS" else "secondary"):
         st.session_state["modulo_ativo"] = "FALTAS"
         st.rerun()
 with nav2:
-    if st.button(f"🟦 2. MOODLE ({qtd_moodle})", use_container_width=True, type="primary" if st.session_state["modulo_ativo"] == "MOODLE" else "secondary"):
+    if st.button(f"📚 2. MOODLE ({qtd_moodle})", use_container_width=True, type="primary" if st.session_state["modulo_ativo"] == "MOODLE" else "secondary"):
         st.session_state["modulo_ativo"] = "MOODLE"
         st.rerun()
 with nav3:
-    if st.button(f"🟪 3. AVALIAÇÃO RM ({qtd_rm})", use_container_width=True, type="primary" if st.session_state["modulo_ativo"] == "RM" else "secondary"):
+    if st.button(f"📝 3. AVALIAÇÃO RM ({qtd_rm})", use_container_width=True, type="primary" if st.session_state["modulo_ativo"] == "RM" else "secondary"):
         st.session_state["modulo_ativo"] = "RM"
         st.rerun()
 with nav4:
-    if st.button("🟩 4. VISÃO 360º GERAL", use_container_width=True, type="primary" if st.session_state["modulo_ativo"] == "VISAO360" else "secondary"):
+    if st.button("🌐 4. VISÃO 360º GERAL", use_container_width=True, type="primary" if st.session_state["modulo_ativo"] == "VISAO360" else "secondary"):
         st.session_state["modulo_ativo"] = "VISAO360"
         st.rerun()
 
@@ -797,7 +850,7 @@ def renderizar_painel_faltas():
     if df_f.empty:
         return
 
-    st.markdown("#### ⚡ Filtros Instantâneos (Instrutor, Código da Disciplina, Período e Turno)")
+    st.markdown("<h4 style='color:#1a237e;'>⚡ Filtros Instantâneos (Instrutor, Código da Disciplina, Período e Turno)</h4>", unsafe_allow_html=True)
     f1, f2, f3, f4, f5, f6 = st.columns([1.4, 1.4, 0.9, 1.1, 0.9, 1.2])
 
     with f1:
@@ -858,7 +911,7 @@ def renderizar_painel_faltas():
     m2.metric("Disciplinas Ativas", df_sub["Disciplina"].nunique())
     m3.metric("Turmas no Filtro", df_sub["Turma"].nunique())
     m4.metric("☀️ Manhã (M)", int((df_sub["Turno"] == "M - Manhã").sum()))
-    m5.metric("🌤️ Tarde (V)", int((df_sub["Turno"] == "V - Tarde").sum()))
+    m5.metric("🌇 Tarde (V)", int((df_sub["Turno"] == "V - Tarde").sum()))
 
     sub_f1, sub_f2, sub_f3 = st.tabs([
         "📋 1. RELAÇÃO DE JOVENS AUSENTES (DIA / SEMANA / MÊS)",
@@ -929,7 +982,7 @@ def renderizar_painel_moodle():
     if df_m.empty:
         return
 
-    st.markdown("#### ⚡ Filtros Instantâneos do Moodle (Instrutor, Disciplina, Período e Turno)")
+    st.markdown("<h4 style='color:#1a237e;'>⚡ Filtros Instantâneos do Moodle (Instrutor, Disciplina, Período e Turno)</h4>", unsafe_allow_html=True)
     mc1, mc2, mc3, mc4, mc5, mc6 = st.columns([1.4, 1.4, 0.9, 1.1, 0.9, 1.2])
     with mc1:
         opcoes_inst_m = ["🌟 Todos os Instrutores"] + list(BANCO_TURMAS.keys()) + ["Não Mapeado / Outros"]
@@ -985,7 +1038,7 @@ def renderizar_painel_moodle():
     km2.metric("Disciplinas no Filtro", df_m_sub["Disciplina"].nunique())
     km3.metric("Turmas no Filtro", df_m_sub["Turma"].nunique())
     km4.metric("☀️ Manhã (M)", int((df_m_sub["Turno"] == "M - Manhã").sum()))
-    km5.metric("🌤️ Tarde (V)", int((df_m_sub["Turno"] == "V - Tarde").sum()))
+    km5.metric("🌇 Tarde (V)", int((df_m_sub["Turno"] == "V - Tarde").sum()))
 
     sub_m1, sub_m2 = st.tabs([
         "📋 1. PENDÊNCIAS POR INSTRUTOR E DISCIPLINA",
@@ -1031,7 +1084,7 @@ def renderizar_painel_rm():
     if df_r.empty:
         return
 
-    st.markdown("#### ⚡ Filtros Instantâneos da Avaliação de Desempenho (RM)")
+    st.markdown("<h4 style='color:#1a237e;'>⚡ Filtros Instantâneos da Avaliação de Desempenho (RM)</h4>", unsafe_allow_html=True)
     rc1, rc2, rc3, rc4, rc5 = st.columns([1.4, 1.3, 1.2, 1.3, 1.4])
 
     with rc1:
@@ -1113,10 +1166,10 @@ def renderizar_painel_rm():
 # ==============================================================================
 if st.session_state["modulo_ativo"] == "FALTAS":
     st.markdown("""
-    <div class="banner-modulo" style="background: linear-gradient(90deg, #ea580c 0%, #c2410c 100%); border-left: 8px solid #fed7aa;">
-        <h2 style="margin:0;color:white;">🟧 MÓDULO 1: Controle de Faltas (SharePoint ➔ Diário de Classe RM)</h2>
-        <p style="margin:4px 0 0 0;opacity:0.95;font-size:14px;">
-            Motor Paralelo Multi-Thread + Filtragem Instantânea: <b>Matrícula, Nome, Cidade, Estado, Disciplina, Turma e Turno</b>.
+    <div class="banner-dema" style="border-left-color:#e65100;">
+        <h2 style="margin:0;color:#001ae6;">📅 MÓDULO 1: Controle de Faltas (SharePoint ➔ Diário de Classe RM)</h2>
+        <p style="margin:4px 0 0 0;color:#37474f;font-size:13.5px;">
+            Leitura Paralela Multi-Thread + Filtragem Instantânea: <b>Matrícula, Nome, Cidade, Estado, Disciplina, Turma e Turno</b>.
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -1157,19 +1210,19 @@ if st.session_state["modulo_ativo"] == "FALTAS":
 
         if "ultimo_diagnostico" in st.session_state:
             st_diag = st.session_state["ultimo_diagnostico"]
-            st.info(
-                f"⚡ **Leitura Concluída:** **{st_diag['total_arquivos']}** ficheiros processados em paralelo "
-                f"| ✅ **{st_diag['com_faltas']}** com jovens ausentes "
-                f"| ⚪ **{st_diag['em_branco']}** descartados (em branco / 810 bytes)."
+            st.markdown(
+                f"<div class='visor-sucesso'>✅ Leitura Concluída: {st_diag['total_arquivos']} ficheiros processados "
+                f"| {st_diag['com_faltas']} com jovens ausentes | {st_diag['em_branco']} em branco (810 bytes).</div>",
+                unsafe_allow_html=True
             )
 
     renderizar_painel_faltas()
 
 elif st.session_state["modulo_ativo"] == "MOODLE":
     st.markdown("""
-    <div class="banner-modulo" style="background: linear-gradient(90deg, #0284c7 0%, #1d4ed8 100%); border-left: 8px solid #bae6fd;">
-        <h2 style="margin:0;color:white;">🟦 MÓDULO 2: Acompanhamento de Atividades (Moodle Demà Digital)</h2>
-        <p style="margin:4px 0 0 0;opacity:0.95;font-size:14px;">
+    <div class="banner-dema">
+        <h2 style="margin:0;color:#001ae6;">📚 MÓDULO 2: Acompanhamento de Atividades (Moodle Demà Digital)</h2>
+        <p style="margin:4px 0 0 0;color:#37474f;font-size:13.5px;">
             Importação por Texto ou Planilhas (<b>.TSV, .CSV, .XLSX, .XLS</b>) e filtragem instantânea por <b>Instrutor</b> e <b>Disciplina</b>.
         </p>
     </div>
@@ -1181,7 +1234,7 @@ elif st.session_state["modulo_ativo"] == "MOODLE":
             dt_moodle = st.date_input("📅 Data da Coleta:", value=date.today(), format="DD/MM/YYYY", key="dt_m_in")
         with cm2:
             disc_moodle_in = st.text_input(
-                "📘 Código da Disciplina / Módulo (Opcional — já vem automático da Extensão):",
+                "📘 Código da Disciplina / Módulo (Opcional — automático pela Extensão):",
                 value="",
                 placeholder="Ex: EMP_UB04 (deixe em branco para usar o da Extensão/Turma)",
                 key="disc_m_in"
@@ -1253,9 +1306,9 @@ elif st.session_state["modulo_ativo"] == "MOODLE":
 
 elif st.session_state["modulo_ativo"] == "RM":
     st.markdown("""
-    <div class="banner-modulo" style="background: linear-gradient(90deg, #7e22ce 0%, #581c87 100%); border-left: 8px solid #e9d5ff;">
-        <h2 style="margin:0;color:white;">🟪 MÓDULO 3: Avaliação de Desempenho (Consulta SQL TOTVS RM)</h2>
-        <p style="margin:4px 0 0 0;opacity:0.95;font-size:14px;">
+    <div class="banner-dema" style="border-left-color:#1565c0;">
+        <h2 style="margin:0;color:#001ae6;">📝 MÓDULO 3: Avaliação de Desempenho (Consulta SQL TOTVS RM)</h2>
+        <p style="margin:4px 0 0 0;color:#37474f;font-size:13.5px;">
             Curadoria automática da consulta <b>AvaliacaoGeral</b>: filtro de Pendentes/Andamento, Períodos Vencidos e Códigos de Acesso.
         </p>
     </div>
@@ -1277,7 +1330,6 @@ elif st.session_state["modulo_ativo"] == "RM":
                 key="uploader_rm_files"
             )
 
-        # Leitura imediata ao soltar o ficheiro .tsv / .xlsx na Opção B
         if arqs_rm_up:
             assinatura_rm = [f"{a.name}_{a.size}" for a in arqs_rm_up]
             if st.session_state.get("ultimos_arquivos_rm") != assinatura_rm:
@@ -1347,9 +1399,9 @@ elif st.session_state["modulo_ativo"] == "RM":
 
 elif st.session_state["modulo_ativo"] == "VISAO360":
     st.markdown("""
-    <div class="banner-modulo" style="background: linear-gradient(90deg, #059669 0%, #047857 100%); border-left: 8px solid #a7f3d0;">
-        <h2 style="margin:0;color:white;">🟩 MÓDULO 4: Visão 360º do Jovem (Faltas + Moodle + Avaliação RM)</h2>
-        <p style="margin:4px 0 0 0;opacity:0.95;font-size:14px;">
+    <div class="banner-dema" style="border-left-color:#2e7d32;">
+        <h2 style="margin:0;color:#001ae6;">🌐 MÓDULO 4: Visão 360º do Jovem (Faltas + Moodle + Avaliação RM)</h2>
+        <p style="margin:4px 0 0 0;color:#37474f;font-size:13.5px;">
             Busca unificada e instantânea nas 3 bases simultaneamente.
         </p>
     </div>
@@ -1362,21 +1414,21 @@ elif st.session_state["modulo_ativo"] == "VISAO360":
             t_up = termo_360.strip().upper()
             c1, c2, c3 = st.columns(3)
             with c1:
-                st.markdown("### 🟧 1. Faltas")
+                st.markdown("<h4 style='color:#e65100;'>📅 1. Faltas</h4>", unsafe_allow_html=True)
                 df_f = st.session_state["base_faltas"]
                 if not df_f.empty:
                     res_f = df_f[df_f["_busca_idx"].str.contains(t_up, regex=False, na=False)]
                     cols_360_f = ["Data_Falta", "Matricula", "Nome", "Disciplina", "Turma", "Turno"]
                     st.dataframe(res_f[[c for c in cols_360_f if c in res_f.columns]], use_container_width=True, hide_index=True)
             with c2:
-                st.markdown("### 🟦 2. Atividades Moodle")
+                st.markdown("<h4 style='color:#001ae6;'>📚 2. Atividades Moodle</h4>", unsafe_allow_html=True)
                 df_m = st.session_state["base_moodle"]
                 if not df_m.empty:
                     res_m = df_m[df_m["_busca_idx"].str.contains(t_up, regex=False, na=False)]
                     cols_360_m = ["Data_Coleta", "Disciplina", "Turma", "Jovem", "Atividade"]
                     st.dataframe(res_m[[c for c in cols_360_m if c in res_m.columns]], use_container_width=True, hide_index=True)
             with c3:
-                st.markdown("### 🟪 3. Avaliação RM")
+                st.markdown("<h4 style='color:#1565c0;'>📝 3. Avaliação RM</h4>", unsafe_allow_html=True)
                 df_r = st.session_state["base_rm"]
                 if not df_r.empty:
                     res_r = df_r[df_r["_busca_idx"].str.contains(t_up, regex=False, na=False)]
