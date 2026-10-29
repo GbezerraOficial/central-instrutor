@@ -20,7 +20,7 @@ st.set_page_config(
 )
 
 # ==============================================================================
-# DESIGN HARMÓNICO COMPLETO (PALETA ASSISTENTE MOODLE DEMÀ - CONTENT.JS)
+# DESIGN HARMÓNICO COMPLETO + ABAS PRINCIPAIS DE TRANSIÇÃO INSTANTÂNEA (0ms)
 # ==============================================================================
 st.markdown("""
 <style>
@@ -151,7 +151,7 @@ st.markdown("""
         font-weight: 700 !important;
         font-size: 13.5px !important;
         padding: 10px 14px !important;
-        transition: all 0.2s ease !important;
+        transition: all 0.15s ease !important;
         background-color: #ffffff !important;
         color: #1a237e !important;
         border: 1.5px solid #b0bec5 !important;
@@ -191,29 +191,45 @@ st.markdown("""
     div.stDownloadButton > button p, div.stDownloadButton > button span {
         color: #ffffff !important;
     }
+
+    /* Abas Principais e Sub-Abas Estilizadas como Botões Grandes (Troca em 0ms no Browser!) */
+    div[data-baseweb="tab-list"] {
+        gap: 8px !important;
+        background-color: transparent !important;
+        padding-bottom: 6px !important;
+    }
     button[data-baseweb="tab"] {
         background-color: #ffffff !important;
-        color: #37474f !important;
-        border-radius: 8px 8px 0 0 !important;
-        padding: 10px 18px !important;
-        margin-right: 6px !important;
-        font-weight: 700 !important;
-        font-size: 13.5px !important;
-        border: 1px solid #cfd8dc !important;
-        border-bottom: none !important;
+        color: #1a237e !important;
+        border-radius: 8px !important;
+        padding: 12px 20px !important;
+        font-weight: 800 !important;
+        font-size: 14px !important;
+        border: 1.5px solid #b0bec5 !important;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.04) !important;
+        flex: 1 !important;
+        justify-content: center !important;
+        transition: all 0.15s ease !important;
     }
     button[data-baseweb="tab"] p {
-        color: #37474f !important;
-        font-weight: 700 !important;
+        color: #1a237e !important;
+        font-weight: 800 !important;
+        font-size: 14px !important;
+    }
+    button[data-baseweb="tab"]:hover {
+        border-color: #001ae6 !important;
+        background-color: #e3f2fd !important;
     }
     button[data-baseweb="tab"][aria-selected="true"] {
         background-color: #001ae6 !important;
         color: #ffffff !important;
         border: 2px solid #001ae6 !important;
+        box-shadow: 0 4px 14px rgba(0, 26, 230, 0.28) !important;
     }
     button[data-baseweb="tab"][aria-selected="true"] p {
         color: #ffffff !important;
     }
+
     div[data-testid="stMetric"] {
         background-color: #ffffff !important;
         border: 1px solid #cfd8dc !important;
@@ -254,7 +270,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 1. BANCO DE DADOS ATUALIZADO (OUTUBRO 2026) + TURMAS A DESATIVAR
+# 1. BANCO DE DADOS ATUALIZADO (OUTUBRO 2026) + FUNÇÕES CACHEADAS DE EXPORTAÇÃO
 # ==============================================================================
 UFS_BRASIL = {
     "AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS", "MT",
@@ -268,7 +284,6 @@ REGEX_EXT_ARQ = re.compile(r"\.(xlsx?|csv|tsv)$", re.I)
 REGEX_TURMA_APC = re.compile(r"(APC\.?\d+|\d+\.[A-Z0-9]+\.\d+[MV])", re.I)
 REGEX_MATRICULA = re.compile(r"^\d{3,12}$")
 
-# As 8 turmas sinalizadas como "Turma a ser desativada" na planilha de Outubro/2026
 TURMAS_DESATIVADAS_PADRAO = {
     "3872.APC01.4V.101", "3872.APC01.4V.89", "3872.APC01.4V.92", "671.APC01.4V.101",
     "671.APC02.2V.100", "671.APC02.4M.54", "671.APC02.4V.54", "671.APC02.4V.78"
@@ -337,10 +352,35 @@ def construir_mapas_turmas():
                 mapa_str[cod_norm] += f" / {inst}"
     return mapa_str, set_por_inst
 
-MAPA_TURMA_STR, SET_TURMAS_POR_INSTRUTOR = construir_mapas_turmas()
+if "mapas_cache" not in st.session_state:
+    st.session_state["mapas_cache"] = construir_mapas_turmas()
+
+MAPA_TURMA_STR, SET_TURMAS_POR_INSTRUTOR = st.session_state["mapas_cache"]
+
+# Cache de exportação Excel (evita recalcular ficheiros .xlsx ao navegar entre abas!)
+@st.cache_data(show_spinner=False, max_entries=15)
+def converter_df_para_excel_bytes(df_exportar, nome_aba="Dados"):
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        df_exportar.to_excel(writer, sheet_name=nome_aba, index=False)
+    return buf.getvalue()
+
+@st.cache_data(show_spinner=False, max_entries=5)
+def gerar_backup_unificado_bytes(df_f, df_m, df_r):
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        if not df_f.empty:
+            cols_f = [c for c in df_f.columns if not c.startswith("_")]
+            df_f[cols_f].to_excel(writer, sheet_name="Historico_Faltas", index=False)
+        if not df_m.empty:
+            cols_m = [c for c in df_m.columns if not c.startswith("_")]
+            df_m[cols_m].to_excel(writer, sheet_name="Historico_Moodle", index=False)
+        if not df_r.empty:
+            cols_r = [c for c in df_r.columns if not c.startswith("_")]
+            df_r[cols_r].to_excel(writer, sheet_name="Historico_RM", index=False)
+    return buf.getvalue()
 
 def atualizar_banco_via_planilha_grade(arq_excel):
-    """Lê todas as abas 'Turmas_*' de uma nova planilha de Grade Horária e atualiza o banco em memória."""
     xls = pd.ExcelFile(arq_excel)
     abas_turmas = [s for s in xls.sheet_names if s.startswith("Turmas_")]
     if not abas_turmas:
@@ -394,6 +434,7 @@ def atualizar_banco_via_planilha_grade(arq_excel):
 
     st.session_state["banco_turmas_atual"] = novo_banco
     st.session_state["turmas_desativadas"] = novas_desativadas
+    st.session_state["mapas_cache"] = construir_mapas_turmas()
     return True, f"{total_lidas} turmas carregadas ({len(novas_desativadas)} marcadas para desativação)."
 
 def sanitizar_celula(valor):
@@ -970,11 +1011,9 @@ if "base_faltas" not in st.session_state:
     st.session_state["base_faltas"] = pd.DataFrame()
 if "base_rm" not in st.session_state:
     st.session_state["base_rm"] = pd.DataFrame()
-if "modulo_ativo" not in st.session_state:
-    st.session_state["modulo_ativo"] = "FALTAS"
 
 # ==============================================================================
-# 4. BARRA LATERAL: BANCO DE TURMAS (OUT.2026) + BACKUP UNIFICADO
+# 4. BARRA LATERAL: BANCO DE TURMAS (OUT.2026) + BACKUP UNIFICADO CACHEADO
 # ==============================================================================
 with st.sidebar:
     st.markdown("<h3 style='color:#001ae6;margin-bottom:4px;'>⚡ Suíte Equipe Bojador</h3>", unsafe_allow_html=True)
@@ -1016,53 +1055,19 @@ with st.sidebar:
 
     tem_dados = any(not st.session_state[k].empty for k in ["base_moodle", "base_faltas", "base_rm"])
     if tem_dados:
-        buf = io.BytesIO()
-        with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-            if not st.session_state["base_faltas"].empty:
-                cols_f = [c for c in st.session_state["base_faltas"].columns if not c.startswith("_")]
-                st.session_state["base_faltas"][cols_f].to_excel(writer, sheet_name="Historico_Faltas", index=False)
-            if not st.session_state["base_moodle"].empty:
-                cols_m = [c for c in st.session_state["base_moodle"].columns if not c.startswith("_")]
-                st.session_state["base_moodle"][cols_m].to_excel(writer, sheet_name="Historico_Moodle", index=False)
-            if not st.session_state["base_rm"].empty:
-                cols_r = [c for c in st.session_state["base_rm"].columns if not c.startswith("_")]
-                st.session_state["base_rm"][cols_r].to_excel(writer, sheet_name="Historico_RM", index=False)
+        bytes_backup = gerar_backup_unificado_bytes(
+            st.session_state["base_faltas"],
+            st.session_state["base_moodle"],
+            st.session_state["base_rm"]
+        )
         st.download_button(
             label="💾 Baixar Base Unificada (.xlsx)",
-            data=buf.getvalue(),
+            data=bytes_backup,
             file_name=f"Base_Completa_{datetime.now().strftime('%d-%m-%Y')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             type="primary",
             use_container_width=True
         )
-
-# ==============================================================================
-# 5. MENU PRINCIPAL COM AS 4 ÁREAS DO SISTEMA
-# ==============================================================================
-st.markdown("<h3 style='color:#1a237e;margin-top:0;'>⚡ Central de Acompanhamento Demà & RM</h3>", unsafe_allow_html=True)
-qtd_faltas = len(st.session_state["base_faltas"])
-qtd_moodle = len(st.session_state["base_moodle"])
-qtd_rm = len(st.session_state["base_rm"])
-
-nav1, nav2, nav3, nav4 = st.columns(4)
-with nav1:
-    if st.button(f"📅 1. FALTAS ({qtd_faltas})", use_container_width=True, type="primary" if st.session_state["modulo_ativo"] == "FALTAS" else "secondary"):
-        st.session_state["modulo_ativo"] = "FALTAS"
-        st.rerun()
-with nav2:
-    if st.button(f"📚 2. MOODLE ({qtd_moodle})", use_container_width=True, type="primary" if st.session_state["modulo_ativo"] == "MOODLE" else "secondary"):
-        st.session_state["modulo_ativo"] = "MOODLE"
-        st.rerun()
-with nav3:
-    if st.button(f"📝 3. AVALIAÇÃO RM ({qtd_rm})", use_container_width=True, type="primary" if st.session_state["modulo_ativo"] == "RM" else "secondary"):
-        st.session_state["modulo_ativo"] = "RM"
-        st.rerun()
-with nav4:
-    if st.button("🌐 4. VISÃO 360º GERAL", use_container_width=True, type="primary" if st.session_state["modulo_ativo"] == "VISAO360" else "secondary"):
-        st.session_state["modulo_ativo"] = "VISAO360"
-        st.rerun()
-
-st.write("")
 
 # ==============================================================================
 # FRAGMENTO 1: PAINEL DE FALTAS
@@ -1166,12 +1171,9 @@ def renderizar_painel_faltas():
         )
         st.session_state["base_faltas"].loc[df_editado.index, "Lancado_RM"] = df_editado["Lancado_RM"]
 
-        buf_filtro_f = io.BytesIO()
-        with pd.ExcelWriter(buf_filtro_f, engine="openpyxl") as writer:
-            df_ordenado.to_excel(writer, sheet_name="Faltas_Filtradas", index=False)
         st.download_button(
             label="📥 Exportar Tabela Filtrada (.xlsx)",
-            data=buf_filtro_f.getvalue(),
+            data=converter_df_para_excel_bytes(df_ordenado, "Faltas_Filtradas"),
             file_name=f"Faltas_Filtradas_{datetime.now().strftime('%d-%m-%Y')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
@@ -1270,14 +1272,12 @@ def renderizar_painel_moodle():
     with sub_m1:
         cols_m_ordem = ["Data_Coleta", "Instrutor", "Disciplina", "Turno", "Turma", "Atividade", "Status", "Jovem", "Email_Enviado"]
         cols_m_pres = [c for c in cols_m_ordem if c in df_m_sub.columns]
-        st.dataframe(df_m_sub[cols_m_pres], use_container_width=True, hide_index=True)
+        df_m_view = df_m_sub[cols_m_pres]
+        st.dataframe(df_m_view, use_container_width=True, hide_index=True)
 
-        buf_filtro_m = io.BytesIO()
-        with pd.ExcelWriter(buf_filtro_m, engine="openpyxl") as writer:
-            df_m_sub[cols_m_pres].to_excel(writer, sheet_name="Moodle_Filtrado", index=False)
         st.download_button(
             label="📥 Exportar Pendências Filtradas (.xlsx)",
-            data=buf_filtro_m.getvalue(),
+            data=converter_df_para_excel_bytes(df_m_view, "Moodle_Filtrado"),
             file_name=f"Moodle_Filtrado_{datetime.now().strftime('%d-%m-%Y')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
@@ -1356,25 +1356,31 @@ def renderizar_painel_rm():
     cols_rm_pres = [c for c in cols_rm_foco if c in df_r_sub.columns]
 
     with sub_r1:
-        st.dataframe(df_r_sub[cols_rm_pres], use_container_width=True, hide_index=True)
-        buf_rm = io.BytesIO()
-        with pd.ExcelWriter(buf_rm, engine="openpyxl") as writer:
-            df_r_sub[cols_rm_pres].to_excel(writer, sheet_name="Avaliacao_RM_Filtrada", index=False)
+        df_r_view = df_r_sub[cols_rm_pres]
+        st.dataframe(df_r_view, use_container_width=True, hide_index=True)
         st.download_button(
             label="📥 Exportar Avaliação Filtrada (.xlsx)",
-            data=buf_rm.getvalue(),
+            data=converter_df_para_excel_bytes(df_r_view, "Avaliacao_RM_Filtrada"),
             file_name=f"Avaliacao_RM_{datetime.now().strftime('%d-%m-%Y')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
     with sub_r2:
-        st.caption("💡 Lista gerada automaticamente com Nome, Código de Acesso e Prazo Final para envio aos jovens pendentes:")
-        df_cobranca = df_r_sub[df_r_sub["STATUS_PROVA"].str.upper() != "FINALIZADO"]
-        linhas_msg = [
-            f"• {r['NOME']} | Código de Acesso: {r['CODIGO_ACESSO'] or 'Sem código'} | Período: {r['NOMEPERIODO']} (Até {r['DATAFINAL']}) | Cidade: {r['CIDADE']}"
-            for _, r in df_cobranca.head(500).iterrows()
-        ]
-        st.text_area("📋 Copie as linhas abaixo para cobrar os jovens:", value="\n".join(linhas_msg), height=220)
+        st.caption("💡 Lista gerada automaticamente de forma vetorizada com Nome, Código de Acesso e Prazo Final:")
+        df_cob = df_r_sub[df_r_sub["STATUS_PROVA"].str.upper() != "FINALIZADO"].head(500)
+        if not df_cob.empty:
+            cod_ac = np.where(df_cob["CODIGO_ACESSO"] != "", df_cob["CODIGO_ACESSO"], "Sem código")
+            serie_linhas = (
+                "• " + df_cob["NOME"] +
+                " | Código de Acesso: " + cod_ac +
+                " | Período: " + df_cob["NOMEPERIODO"] +
+                " (Até " + df_cob["DATAFINAL"] + ")" +
+                " | Cidade: " + df_cob["CIDADE"]
+            )
+            texto_cobranca = "\n".join(serie_linhas.tolist())
+        else:
+            texto_cobranca = "Nenhum jovem pendente no filtro atual."
+        st.text_area("📋 Copie as linhas abaixo para cobrar os jovens:", value=texto_cobranca, height=220)
 
     with sub_r3:
         resumo_ciclo = (
@@ -1385,9 +1391,24 @@ def renderizar_painel_rm():
         st.dataframe(resumo_ciclo, use_container_width=True, hide_index=True)
 
 # ==============================================================================
-# RENDERIZAÇÃO DO MÓDULO ATIVO
+# 5. NAVEGAÇÃO PRINCIPAL POR ABAS NATIVAS (TRANSIÇÃO 0ms NO NAVEGADOR!)
 # ==============================================================================
-if st.session_state["modulo_ativo"] == "FALTAS":
+st.markdown("<h3 style='color:#1a237e;margin-top:0;'>⚡ Central de Acompanhamento Demà & RM</h3>", unsafe_allow_html=True)
+qtd_faltas = len(st.session_state["base_faltas"])
+qtd_moodle = len(st.session_state["base_moodle"])
+qtd_rm = len(st.session_state["base_rm"])
+
+aba_mod_faltas, aba_mod_moodle, aba_mod_rm, aba_mod_360 = st.tabs([
+    f"📅 1. CONTROLE DE FALTAS ({qtd_faltas})",
+    f"📚 2. ATIVIDADES MOODLE ({qtd_moodle})",
+    f"📝 3. AVALIAÇÃO RM ({qtd_rm})",
+    "🌐 4. VISÃO 360º GERAL"
+])
+
+# ------------------------------------------------------------------------------
+# ABA 1: CONTROLE DE FALTAS
+# ------------------------------------------------------------------------------
+with aba_mod_faltas:
     st.markdown("""
     <div class="banner-dema" style="border-left-color:#e65100;">
         <h2 style="margin:0;color:#001ae6;">📅 MÓDULO 1: Controle de Faltas (SharePoint ➔ Diário de Classe RM)</h2>
@@ -1430,6 +1451,7 @@ if st.session_state["modulo_ativo"] == "FALTAS":
                             subset=["Data_Falta", "Disciplina", "Turma", "Matricula", "Nome"], keep="first"
                         ).reset_index(drop=True)
                         st.session_state["base_faltas"] = df_acum
+                        st.rerun()
 
         if "ultimo_diagnostico" in st.session_state:
             st_diag = st.session_state["ultimo_diagnostico"]
@@ -1441,7 +1463,10 @@ if st.session_state["modulo_ativo"] == "FALTAS":
 
     renderizar_painel_faltas()
 
-elif st.session_state["modulo_ativo"] == "MOODLE":
+# ------------------------------------------------------------------------------
+# ABA 2: ATIVIDADES MOODLE
+# ------------------------------------------------------------------------------
+with aba_mod_moodle:
     st.markdown("""
     <div class="banner-dema">
         <h2 style="margin:0;color:#001ae6;">📚 MÓDULO 2: Acompanhamento de Atividades (Moodle Demà Digital)</h2>
@@ -1527,7 +1552,10 @@ elif st.session_state["modulo_ativo"] == "MOODLE":
 
     renderizar_painel_moodle()
 
-elif st.session_state["modulo_ativo"] == "RM":
+# ------------------------------------------------------------------------------
+# ABA 3: AVALIAÇÃO DE DESEMPENHO (TOTVS RM)
+# ------------------------------------------------------------------------------
+with aba_mod_rm:
     st.markdown("""
     <div class="banner-dema" style="border-left-color:#1565c0;">
         <h2 style="margin:0;color:#001ae6;">📝 MÓDULO 3: Avaliação de Desempenho (Consulta SQL TOTVS RM)</h2>
@@ -1620,7 +1648,10 @@ elif st.session_state["modulo_ativo"] == "RM":
 
     renderizar_painel_rm()
 
-elif st.session_state["modulo_ativo"] == "VISAO360":
+# ------------------------------------------------------------------------------
+# ABA 4: VISÃO 360º GERAL
+# ------------------------------------------------------------------------------
+with aba_mod_360:
     st.markdown("""
     <div class="banner-dema" style="border-left-color:#2e7d32;">
         <h2 style="margin:0;color:#001ae6;">🌐 MÓDULO 4: Visão 360º do Jovem (Faltas + Moodle + Avaliação RM)</h2>
