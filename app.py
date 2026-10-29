@@ -21,11 +21,9 @@ st.set_page_config(
 
 # ==============================================================================
 # DESIGN HARMÓNICO COMPLETO (PALETA ASSISTENTE MOODLE DEMÀ - CONTENT.JS)
-# Garante 100% de visibilidade das letras mesmo se o navegador estiver em Dark Mode
 # ==============================================================================
 st.markdown("""
 <style>
-    /* 1. Fundo Geral Suave (Cinza-Azulado Claro) e Barra de Topo Limpa */
     .stApp {
         background-color: #eef2f6 !important;
         color: #37474f !important;
@@ -37,8 +35,6 @@ st.markdown("""
     header[data-testid="stHeader"] * {
         color: #1a237e !important;
     }
-
-    /* 2. Barra Lateral Branca com Borda Azul Demà */
     section[data-testid="stSidebar"] {
         background-color: #ffffff !important;
         border-right: 2px solid #001ae6 !important;
@@ -51,8 +47,6 @@ st.markdown("""
     section[data-testid="stSidebar"] h3 {
         color: #001ae6 !important;
     }
-
-    /* 3. Forçar Visibilidade Total de Todos os Rótulos e Textos (Fim das letras invisíveis!) */
     [data-testid="stWidgetLabel"],
     [data-testid="stWidgetLabel"] p,
     [data-testid="stWidgetLabel"] span,
@@ -64,8 +58,6 @@ st.markdown("""
         font-weight: 700 !important;
         font-size: 13px !important;
     }
-
-    /* 4. Caixas de Texto, Datas e Seletores Claros e Harmónicos (Fim das caixas pretas!) */
     [data-baseweb="input"],
     [data-baseweb="base-input"],
     [data-baseweb="textarea"],
@@ -95,7 +87,6 @@ st.markdown("""
         -webkit-text-fill-color: #78909c !important;
         opacity: 1 !important;
     }
-    /* Menu Dropdown Aberto */
     [data-baseweb="popover"],
     [data-baseweb="menu"],
     ul[role="listbox"],
@@ -108,8 +99,6 @@ st.markdown("""
         color: #001ae6 !important;
         font-weight: 700 !important;
     }
-
-    /* 5. Painel Retrátil (Expander) Claro e Elegante (Fim da barra preta!) */
     div[data-testid="stExpander"] {
         background-color: #ffffff !important;
         border: 1.5px solid #cfd8dc !important;
@@ -134,8 +123,6 @@ st.markdown("""
         font-weight: 800 !important;
         font-size: 14px !important;
     }
-
-    /* 6. Área de Upload de Ficheiros (Dropzone) Clara */
     [data-testid="stFileUploaderDropzone"] {
         background-color: #f8f9fa !important;
         border: 2px dashed #1565c0 !important;
@@ -159,8 +146,6 @@ st.markdown("""
     [data-testid="stFileUploaderDropzone"] button * {
         color: #ffffff !important;
     }
-
-    /* 7. Botões Principais e Secundários */
     div.stButton > button {
         border-radius: 8px !important;
         font-weight: 700 !important;
@@ -196,8 +181,6 @@ st.markdown("""
         background-color: #1565c0 !important;
         border-color: #1565c0 !important;
     }
-
-    /* 8. Botões de Download */
     div.stDownloadButton > button {
         background-color: #2e7d32 !important;
         color: #ffffff !important;
@@ -208,8 +191,6 @@ st.markdown("""
     div.stDownloadButton > button p, div.stDownloadButton > button span {
         color: #ffffff !important;
     }
-
-    /* 9. Abas (Submenus) */
     button[data-baseweb="tab"] {
         background-color: #ffffff !important;
         color: #37474f !important;
@@ -233,8 +214,6 @@ st.markdown("""
     button[data-baseweb="tab"][aria-selected="true"] p {
         color: #ffffff !important;
     }
-
-    /* 10. Cartões de Métricas */
     div[data-testid="stMetric"] {
         background-color: #ffffff !important;
         border: 1px solid #cfd8dc !important;
@@ -251,8 +230,6 @@ st.markdown("""
         color: #001ae6 !important;
         font-weight: 800 !important;
     }
-
-    /* 11. Banners Superiores dos Módulos */
     .banner-dema {
         background: #ffffff;
         border: 2px solid #001ae6;
@@ -277,7 +254,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 1. ESTRUTURAS PRÉ-COMPILADAS E BANCO DE TURMAS (SINCRONIZADO COM CONTENT.JS)
+# 1. BANCO DE DADOS ATUALIZADO (OUTUBRO 2026) + TURMAS A DESATIVAR
 # ==============================================================================
 UFS_BRASIL = {
     "AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS", "MT",
@@ -291,7 +268,13 @@ REGEX_EXT_ARQ = re.compile(r"\.(xlsx?|csv|tsv)$", re.I)
 REGEX_TURMA_APC = re.compile(r"(APC\.?\d+|\d+\.[A-Z0-9]+\.\d+[MV])", re.I)
 REGEX_MATRICULA = re.compile(r"^\d{3,12}$")
 
-BANCO_TURMAS = {
+# As 8 turmas sinalizadas como "Turma a ser desativada" na planilha de Outubro/2026
+TURMAS_DESATIVADAS_PADRAO = {
+    "3872.APC01.4V.101", "3872.APC01.4V.89", "3872.APC01.4V.92", "671.APC01.4V.101",
+    "671.APC02.2V.100", "671.APC02.4M.54", "671.APC02.4V.54", "671.APC02.4V.78"
+}
+
+BANCO_TURMAS_PADRAO = {
     "Guilherme Gomes Bezerra": {
         "M": ["03872.APC09.0M.54", "3872.APC09.0M.100", "3872.APC09.0M.104", "3872.APC09.0M.105", "3872.APC09.0M.106", "3872.APC09.0M.108", "3872.APC09.0M.115", "3872.APC09.0M.52", "3872.APC09.0M.55", "3872.APC09.0M.57", "3872.APC09.0M.71", "3872.APC09.0M.74", "3872.APC09.0M.76", "3872.APC09.0M.78", "3872.APC09.0M.85", "3872.APC09.0M.89", "3872.APC09.0M.91", "3872.APC09.0M.92", "3872.APC09.0M.94", "3872.APC09.0M.96", "3872.APC09.0M.97", "3872.APC09.0M.98", "3872.APC09.1M.71", "4.0.APC02.2M.91", "4.0.APC02.3M.91", "4.0.APC02.4M.91", "4.0.APC02.5M.91", "4.0.APC09.0M.91", "4.APC02.2M.54", "4.APC02.2M.71", "4.APC02.2M.85", "4.APC02.3M.100", "4.APC02.3M.74", "4.APC02.3M.78", "4.APC02.3M.79", "4.APC02.3M.89", "4.APC02.4M.100", "4.APC02.4M.103", "4.APC02.4M.71", "4.APC02.4M.98", "4.APC02.5M.100", "4.APC09.0M.71", "671.APC09.0M.105", "671.APC09.0M.106", "671.APC09.0M.54", "671.APC09.0M.71", "671.APC09.0M.74", "671.APC09.0M.78", "671.APC09.0M.85", "671.APC09.0M.91", "671.APC09.0M.97"],
         "V": ["3872.APC09.0V.01", "3872.APC09.0V.100", "3872.APC09.0V.104", "3872.APC09.0V.105", "3872.APC09.0V.106", "3872.APC09.0V.108", "3872.APC09.0V.115", "3872.APC09.0V.52", "3872.APC09.0V.54", "3872.APC09.0V.55", "3872.APC09.0V.57", "3872.APC09.0V.71", "3872.APC09.0V.74", "3872.APC09.0V.76", "3872.APC09.0V.78", "3872.APC09.0V.85", "3872.APC09.0V.89", "3872.APC09.0V.91", "3872.APC09.0V.94", "3872.APC09.0V.96", "3872.APC09.0V.97", "3872.APC09.0V.98", "4.0.APC02.2V.91", "4.0.APC02.3V.91", "4.0.APC02.4V.91", "4.0.APC02.5V.91", "4.0.APC09.0V.91", "4.APC02.2V.100", "4.APC02.2V.71", "4.APC02.2V.85", "4.APC02.2V.94", "4.APC02.3V.100", "4.APC02.3V.103", "4.APC02.3V.78", "4.APC02.4V.100", "4.APC02.4V.103", "4.APC02.4V.71", "4.APC02.4V.74", "4.APC02.4V.96", "4.APC09.0V.78", "671.APC09.0V.106", "671.APC09.0V.54", "671.APC09.0V.71", "671.APC09.0V.74", "671.APC09.0V.78", "671.APC09.0V.85", "671.APC09.0V.91", "671.APC09.0V.96"]
@@ -334,18 +317,84 @@ def normalizar_codigo_turma(s):
     txt = re.sub(r"\.0+(\d+)$", r".\1", txt)
     return txt
 
-MAPA_TURMA_STR = {}
-SET_TURMAS_POR_INSTRUTOR = {}
+if "banco_turmas_atual" not in st.session_state:
+    st.session_state["banco_turmas_atual"] = BANCO_TURMAS_PADRAO
+if "turmas_desativadas" not in st.session_state:
+    st.session_state["turmas_desativadas"] = {normalizar_codigo_turma(c) for c in TURMAS_DESATIVADAS_PADRAO}
 
-for inst, turnos in BANCO_TURMAS.items():
-    SET_TURMAS_POR_INSTRUTOR[inst] = set()
-    for cod in turnos["M"] + turnos["V"]:
-        cod_norm = normalizar_codigo_turma(cod)
-        SET_TURMAS_POR_INSTRUTOR[inst].add(cod_norm)
-        if cod_norm not in MAPA_TURMA_STR:
-            MAPA_TURMA_STR[cod_norm] = inst
-        elif inst not in MAPA_TURMA_STR[cod_norm]:
-            MAPA_TURMA_STR[cod_norm] += f" / {inst}"
+def construir_mapas_turmas():
+    banco = st.session_state["banco_turmas_atual"]
+    mapa_str = {}
+    set_por_inst = {}
+    for inst, turnos in banco.items():
+        set_por_inst[inst] = set()
+        for cod in turnos["M"] + turnos["V"]:
+            cod_norm = normalizar_codigo_turma(cod)
+            set_por_inst[inst].add(cod_norm)
+            if cod_norm not in mapa_str:
+                mapa_str[cod_norm] = inst
+            elif inst not in mapa_str[cod_norm]:
+                mapa_str[cod_norm] += f" / {inst}"
+    return mapa_str, set_por_inst
+
+MAPA_TURMA_STR, SET_TURMAS_POR_INSTRUTOR = construir_mapas_turmas()
+
+def atualizar_banco_via_planilha_grade(arq_excel):
+    """Lê todas as abas 'Turmas_*' de uma nova planilha de Grade Horária e atualiza o banco em memória."""
+    xls = pd.ExcelFile(arq_excel)
+    abas_turmas = [s for s in xls.sheet_names if s.startswith("Turmas_")]
+    if not abas_turmas:
+        return False, "Nenhuma aba iniciada por 'Turmas_' foi encontrada na planilha."
+
+    novo_banco = {k: {"M": [], "V": []} for k in BANCO_TURMAS_PADRAO.keys()}
+    novas_desativadas = set()
+    total_lidas = 0
+
+    for aba in abas_turmas:
+        df = pd.read_excel(xls, sheet_name=aba)
+        if df.empty:
+            continue
+        header_idx = None
+        for r_idx in range(len(df)):
+            vals = [str(x).strip().upper() for x in df.iloc[r_idx].values]
+            if "CODTURMA" in vals:
+                header_idx = r_idx
+                break
+        if header_idx is None:
+            continue
+
+        df_data = df.iloc[header_idx + 1:].copy()
+        for _, row in df_data.iterrows():
+            cod = str(row.iloc[1]).strip() if len(row) > 1 else ""
+            if not cod or cod.lower() in ("nan", "none"):
+                continue
+            turno_raw = str(row.iloc[2]).strip().upper() if len(row) > 2 else ""
+            if aba == "Turmas_Profissa 4.0":
+                tutor = "Guilherme Gomes Bezerra"
+                obs = ""
+            else:
+                tutor = str(row.iloc[4]).strip() if len(row) > 4 else ""
+                obs = str(row.iloc[5]).strip() if len(row) > 5 and pd.notna(row.iloc[5]) else ""
+
+            tutor_chave = None
+            for nome_padrao in novo_banco.keys():
+                if nome_padrao.split()[0].upper() in tutor.upper():
+                    tutor_chave = nome_padrao
+                    break
+            if not tutor_chave:
+                continue
+
+            sigla_t = "M" if ("MATUTINO" in turno_raw or "M." in cod.upper()) else "V"
+            if cod not in novo_banco[tutor_chave][sigla_t]:
+                novo_banco[tutor_chave][sigla_t].append(cod)
+                total_lidas += 1
+
+            if "desativada" in obs.lower():
+                novas_desativadas.add(normalizar_codigo_turma(cod))
+
+    st.session_state["banco_turmas_atual"] = novo_banco
+    st.session_state["turmas_desativadas"] = novas_desativadas
+    return True, f"{total_lidas} turmas carregadas ({len(novas_desativadas)} marcadas para desativação)."
 
 def sanitizar_celula(valor):
     s = str(valor).strip()
@@ -644,6 +693,8 @@ def indexar_base_rm(df, df_faltas=None, df_moodle=None):
     return df
 
 def filtrar_rapido_por_instrutor(df_alvo, nome_instrutor):
+    if st.session_state.get("ocultar_desativadas", False) and "_turma_norm" in df_alvo.columns:
+        df_alvo = df_alvo[~df_alvo["_turma_norm"].isin(st.session_state["turmas_desativadas"])]
     if nome_instrutor == "🌟 Todos os Instrutores":
         return df_alvo
     if nome_instrutor == "Não Mapeado / Outros":
@@ -923,10 +974,29 @@ if "modulo_ativo" not in st.session_state:
     st.session_state["modulo_ativo"] = "FALTAS"
 
 # ==============================================================================
-# 4. BARRA LATERAL: BACKUP UNIFICADO DAS 3 ETAPAS (.XLSX)
+# 4. BARRA LATERAL: BANCO DE TURMAS (OUT.2026) + BACKUP UNIFICADO
 # ==============================================================================
 with st.sidebar:
     st.markdown("<h3 style='color:#001ae6;margin-bottom:4px;'>⚡ Suíte Equipe Bojador</h3>", unsafe_allow_html=True)
+    st.caption("Base de Turmas: **Outubro 2026 (339 turmas)**")
+
+    st.checkbox(
+        f"🚫 Ocultar {len(st.session_state['turmas_desativadas'])} turmas 'A ser desativada'",
+        value=False,
+        key="ocultar_desativadas"
+    )
+
+    with st.expander("🔄 Atualizar Grade de Turmas (.xlsx)"):
+        arq_grade = st.file_uploader("Subir nova planilha de Grade Horária:", type=["xlsx", "xls"], key="up_grade")
+        if arq_grade and st.button("✅ Aplicar Nova Grade", use_container_width=True):
+            ok, msg = atualizar_banco_via_planilha_grade(arq_grade)
+            if ok:
+                st.success(msg)
+                st.rerun()
+            else:
+                st.error(msg)
+
+    st.divider()
     st.caption("Backup Unificado (**Faltas + Moodle + Avaliação RM**):")
     arq_hist = st.file_uploader("📂 Restaurar Histórico (.xlsx):", type=["xlsx"])
     if arq_hist and st.button("🔄 Carregar Histórico", use_container_width=True):
@@ -1007,7 +1077,7 @@ def renderizar_painel_faltas():
     f1, f2, f3, f4, f5, f6 = st.columns([1.4, 1.4, 0.9, 1.1, 0.9, 1.2])
 
     with f1:
-        opcoes_instrutor = ["🌟 Todos os Instrutores"] + list(BANCO_TURMAS.keys()) + ["Não Mapeado / Outros"]
+        opcoes_instrutor = ["🌟 Todos os Instrutores"] + list(st.session_state["banco_turmas_atual"].keys()) + ["Não Mapeado / Outros"]
         sel_instrutor_f = st.selectbox("👤 1. Instrutor(a):", opcoes_instrutor, index=0, key="f_inst")
     with f3:
         modo_tempo_f = st.selectbox("🗓️ 3. Modo:", ["📅 Dia", "📆 Semana", "🗓️ Mês", "♾️ Tudo"], index=0, key="f_modo")
@@ -1138,7 +1208,7 @@ def renderizar_painel_moodle():
     st.markdown("<h4 style='color:#1a237e;'>⚡ Filtros Instantâneos do Moodle (Instrutor, Disciplina, Período e Turno)</h4>", unsafe_allow_html=True)
     mc1, mc2, mc3, mc4, mc5, mc6 = st.columns([1.4, 1.4, 0.9, 1.1, 0.9, 1.2])
     with mc1:
-        opcoes_inst_m = ["🌟 Todos os Instrutores"] + list(BANCO_TURMAS.keys()) + ["Não Mapeado / Outros"]
+        opcoes_inst_m = ["🌟 Todos os Instrutores"] + list(st.session_state["banco_turmas_atual"].keys()) + ["Não Mapeado / Outros"]
         sel_inst_m = st.selectbox("👤 1. Instrutor(a):", opcoes_inst_m, index=0, key="m_inst")
     with mc3:
         modo_m = st.selectbox("🗓️ 3. Modo:", ["📅 Dia", "📆 Semana", "🗓️ Mês", "♾️ Tudo"], index=0, key="m_modo")
@@ -1241,7 +1311,7 @@ def renderizar_painel_rm():
     rc1, rc2, rc3, rc4, rc5 = st.columns([1.4, 1.3, 1.2, 1.3, 1.4])
 
     with rc1:
-        opcoes_inst_r = ["🌟 Todos os Instrutores"] + list(BANCO_TURMAS.keys()) + ["Não Mapeado / Outros"]
+        opcoes_inst_r = ["🌟 Todos os Instrutores"] + list(st.session_state["banco_turmas_atual"].keys()) + ["Não Mapeado / Outros"]
         sel_inst_r = st.selectbox("👤 1. Instrutor(a):", opcoes_inst_r, index=0, key="r_inst")
     with rc2:
         status_disp = sorted(df_r["STATUS_PROVA"].unique().tolist())
