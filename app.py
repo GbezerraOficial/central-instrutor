@@ -1462,7 +1462,131 @@ def renderizar_painel_rm():
             .sort_values(by=["NOMEPERIODO", "Total_Jovens"], ascending=[True, False])
         )
         st.dataframe(resumo_ciclo, use_container_width=True, hide_index=True)
+# -----------------------------------------------------------------------------
+# FRAGMENTO 4: GERADOR DE CALENDÁRIO DE PLANO DE AULA (DIÁRIO / SEMANAL / OLIMPISMO)
+# -----------------------------------------------------------------------------
+def extrair_regras_calendario(df_cal, mes_padrao, ano_padrao):
+    if df_cal is None or df_cal.empty:
+        return pd.DataFrame()
+    df_c = df_cal.dropna(how="all").copy()
+    regras = []
+    regex_data = re.compile(r"(\d{1,2})[/\-](\d{1,2})(?:[/\-](\d{2,4}))?")
 
+    for _, row in df_c.iterrows():
+         textos = [str(v).strip() for v in row.values if pd.notna(v) and str(v).strip() not in ("", "nan", "None")]
+        if len(textos) < 2:
+            continue
+        linha_str = " | ".join(textos)
+        if any(cab in linha_str.upper() for cab in ["DATA_INICIO", "CONTEUDO_PREVISTO", "DIA DA SEMANA"]):
+            continue
+
+        datas_enc = regex_data.findall(linha_str)
+        if not datas_enc:
+            continue
+
+        d1, m1, y1 = datas_enc[0]
+        ano1 = int(y1) if y1 else ano_padrao
+        if ano1 < 100:
+            ano1 += 2000
+        dt_ini = f"{int(d1):02d}/{int(m1):02d}/{ano1}"
+
+        if len(datas_enc) >= 2:
+            d2, m2, y2 = datas_enc[1]
+            ano2 = int(y2) if y2 else ano1
+            if ano2 < 100:
+                ano2 += 2000
+            dt_fim = f"{int(d2):02d}/{int(m2):02d}/{ano2}"
+        else:
+            dt_fim = dt_ini
+
+        modulo = "TODOS"
+        for mod_cand in ["EMPREGABILIDADE", "INTEGRAÇÃO", "PROFISSA 4.0", "PROFISSIONALIZANTE", "VAREJO", "BANCÁRIO", "ESPECÍFICO"]:
+            if mod_cand in linha_str.upper():
+                modulo = mod_cand
+                break
+
+        textos_sem_data = [t for t in textos if not regex_data.fullmatch(t) and t.upper() != modulo]
+        tema_prev = textos_sem_data[0] if textos_sem_data else linha_str
+        tema_real = textos_sem_data[1] if len(textos_sem_data) > 1 else tema_prev
+        eh_olimpismo = bool(re.search(r"olimpismo|olympism", linha_str, re.I))
+
+        regras.append({
+            "Modulo": modulo,
+            "Tipo": "Diário" if dt_ini == dt_fim else "Semanal",
+            "Data_Inicio": dt_ini,
+            "Data_Fim": dt_fim,
+            "Conteudo_Previsto": tema_prev,
+            "Conteudo_Realizado": tema_real,
+            "Pular_Olimpismo": eh_olimpismo
+        })
+    return pd.DataFrame(regras)
+
+@st.fragment
+def renderizar_painel_plano_aula():
+    ver_up = st.session_state.get("up_ver", 0)
+    if "base_calendario" not in st.session_state:
+        st.session_state["base_calendario"] = pd.DataFrame([
+            {
+                "Modulo": "TODOS",
+                "Tipo": "Semanal",
+                "Data_Inicio": "01/10/2026",
+                "Data_Fim": "09/10/2026",
+                "Conteudo_Previsto": "Olimpismo (Manter como está)",
+                "Conteudo_Realizado": "Olimpismo (Manter como está)",
+                "Pular_Olimpismo": True
+            }
+        ])
+
+    with st.expander("📂 IMPORTAR CALENDÁRIO MENSAL DE PLANO DE AULA (.XLSX, .CSV OU COLAR)", expanded=True):
+        c_m1, c_m2, c_m3 = st.columns([1, 1, 1.5])
+        with c_m1:
+            mes_cal = st.selectbox("Mês de Referência:", list(range(1, 13)), index=9, key="cal_mes_ref")
+        with c_m2:
+            ano_cal = st.number_input("Ano:", value=2026, step=1, key="cal_ano_ref")
+        with c_m3:
+            arq_cal = st.file_uploader(
+                "Arraste a Planilha do Calendário (.xlsx, .xls, .csv):",
+                type=["xlsx", "xls", "csv", "tsv"],
+                key=f"up_cal_{ver_up}"
+            )
+
+        if arq_cal:
+            ass_cal = f"{arq_cal.name}_{arq_cal.size}_{mes_cal}_{ano_cal}"
+            if st.session_state.get("ult_cal_lido") != ass_cal:
+                df_bruto, _ = converter_bytes_em_dataframe(arq_cal.getvalue(), arq_cal.name)
+                df_extraido = extrair_regras_calendario(df_bruto, mes_cal, ano_cal)
+                st.session_state["ult_cal_lido"] = ass_cal
+                if not df_extraido.empty:
+                    st.session_state["base_calendario"] = df_extraido
+                    st.rerun()
+
+    st.caption("✏️ Pode revisar, adicionar linhas ou marcar a caixa **Olimpismo (Manter)** diretamente na tabela abaixo:")
+    df_cal_editado = st.data_editor(
+        st.session_state["base_calendario"],
+        num_rows="dynamic",
+        use_container_width=True,
+        hide_index=True,
+        key="editor_calendario_plano",
+        column_config={
+            "Modulo": st.column_config.SelectboxColumn(
+                "Módulo",
+                options=["TODOS", "EMPREGABILIDADE", "INTEGRAÇÃO", "PROFISSA 4.0", "PROFISSIONALIZANTE", "VAREJO", "BANCÁRIO", "ESPECÍFICO"],
+                default="TODOS"
+            ),
+            "Tipo": st.column_config.SelectboxColumn("Frequência", options=["Diário", "Semanal"], default="Diário"),
+            "Data_Inicio": st.column_config.TextColumn("Data Início (DD/MM/YYYY)"),
+            "Data_Fim": st.column_config.TextColumn("Data Fim (DD/MM/YYYY)"),
+            "Conteudo_Previsto": st.column_config.TextColumn("Conteúdo Previsto"),
+            "Conteudo_Realizado": st.column_config.TextColumn("Conteúdo Realizado"),
+            "Pular_Olimpismo": st.column_config.CheckboxColumn("🏅 Olimpismo (Manter como está)", default=False)
+        }
+    )
+    st.session_state["base_calendario"] = df_cal_editado
+
+    import json
+    json_cal = json.dumps(df_cal_editado.to_dict(orient="records"), ensure_ascii=False)
+    st.markdown("<h4 class='titulo-secao'>📋 Código JSON para a Extensão do RM (Copie e cole no botão flutuante do RM):</h4>", unsafe_allow_html=True)
+    st.code(json_cal, language="json")
 # ==============================================================================
 # 6. NAVEGAÇÃO PRINCIPAL POR ABAS NATIVAS (TRANSIÇÃO 0ms + 100% AUTOMÁTICA)
 # ==============================================================================
