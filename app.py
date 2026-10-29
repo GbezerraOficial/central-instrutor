@@ -20,167 +20,89 @@ st.set_page_config(
 )
 
 # ==============================================================================
-# DESIGN HARMÓNICO COMPLETO + ABAS PRINCIPAIS DE TRANSIÇÃO INSTANTÂNEA (0ms)
+# DESIGN 100% ADAPTATIVO AO TEMA DO NAVEGADOR (DARK MODE & LIGHT MODE)
+# Usa as variáveis nativas var(--text-color) e var(--secondary-background-color)
+# garantindo contraste máximo sem letras invisíveis em nenhum navegador.
 # ==============================================================================
 st.markdown("""
 <style>
-    .stApp {
-        background-color: #eef2f6 !important;
-        color: #37474f !important;
-    }
-    header[data-testid="stHeader"] {
-        background-color: #ffffff !important;
-        border-bottom: 1px solid #cfd8dc !important;
-    }
-    header[data-testid="stHeader"] * {
-        color: #1a237e !important;
-    }
+    /* 1. Barra Lateral com destaque Azul Demà adaptativo */
     section[data-testid="stSidebar"] {
-        background-color: #ffffff !important;
-        border-right: 2px solid #001ae6 !important;
+        border-right: 2px solid #2563eb !important;
     }
-    section[data-testid="stSidebar"] * {
-        color: #37474f !important;
-    }
-    section[data-testid="stSidebar"] h1,
-    section[data-testid="stSidebar"] h2,
-    section[data-testid="stSidebar"] h3 {
-        color: #001ae6 !important;
-    }
-    [data-testid="stWidgetLabel"],
+
+    /* 2. Rótulos dos Filtros e Textos sempre na cor nativa de alto contraste do tema */
     [data-testid="stWidgetLabel"] p,
     [data-testid="stWidgetLabel"] span,
-    label,
-    .stMarkdown p,
-    .stCaption,
-    [data-testid="stCaptionContainer"] p {
-        color: #1a237e !important;
+    label {
+        color: var(--text-color) !important;
         font-weight: 700 !important;
         font-size: 13px !important;
     }
+
+    /* 3. Caixas de Filtro (Selectbox, Input, Textarea) com borda visível e texto nativo */
     [data-baseweb="input"],
     [data-baseweb="base-input"],
     [data-baseweb="textarea"],
     [data-baseweb="select"] > div {
-        background-color: #f8f9fa !important;
-        color: #1e293b !important;
-        border: 1.5px solid #b0bec5 !important;
+        border: 1.5px solid rgba(128, 128, 128, 0.4) !important;
         border-radius: 8px !important;
-        transition: all 0.2s ease !important;
+        transition: all 0.15s ease !important;
     }
     [data-baseweb="input"]:focus-within,
     [data-baseweb="textarea"]:focus-within,
     [data-baseweb="select"] > div:focus-within {
-        background-color: #ffffff !important;
-        border-color: #001ae6 !important;
-        box-shadow: 0 0 0 2px rgba(0, 26, 230, 0.15) !important;
+        border-color: #2563eb !important;
+        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.25) !important;
     }
-    input, textarea, [data-baseweb="select"] span, [data-baseweb="select"] div {
-        color: #1e293b !important;
-        -webkit-text-fill-color: #1e293b !important;
-        background-color: transparent !important;
-        caret-color: #001ae6 !important;
-        font-weight: 500 !important;
-    }
-    input::placeholder, textarea::placeholder {
-        color: #78909c !important;
-        -webkit-text-fill-color: #78909c !important;
-        opacity: 1 !important;
-    }
-    [data-baseweb="popover"],
-    [data-baseweb="menu"],
-    ul[role="listbox"],
-    li[role="option"] {
-        background-color: #ffffff !important;
-        color: #1e293b !important;
-    }
-    li[role="option"]:hover, li[role="option"][aria-selected="true"] {
-        background-color: #e3f2fd !important;
-        color: #001ae6 !important;
-        font-weight: 700 !important;
-    }
+
+    /* 4. Painel Retrátil (Expander) Adaptativo */
     div[data-testid="stExpander"] {
-        background-color: #ffffff !important;
-        border: 1.5px solid #cfd8dc !important;
-        border-left: 5px solid #001ae6 !important;
+        background-color: var(--secondary-background-color) !important;
+        border: 1px solid rgba(128, 128, 128, 0.3) !important;
+        border-left: 5px solid #2563eb !important;
         border-radius: 10px !important;
-        box-shadow: 0 4px 14px rgba(0,0,0,0.05) !important;
         overflow: hidden !important;
     }
-    div[data-testid="stExpander"] details {
-        background-color: #ffffff !important;
-    }
-    div[data-testid="stExpander"] summary {
-        background-color: #e3f2fd !important;
-        padding: 12px 16px !important;
-        border-bottom: 1px solid #cfd8dc !important;
-    }
     div[data-testid="stExpander"] summary p,
-    div[data-testid="stExpander"] summary span,
-    div[data-testid="stExpander"] summary svg {
-        color: #0d47a1 !important;
-        fill: #0d47a1 !important;
+    div[data-testid="stExpander"] summary span {
+        color: var(--text-color) !important;
         font-weight: 800 !important;
         font-size: 14px !important;
     }
+
+    /* 5. Área de Upload (Dropzone) Adaptativa */
     [data-testid="stFileUploaderDropzone"] {
-        background-color: #f8f9fa !important;
-        border: 2px dashed #1565c0 !important;
+        border: 2px dashed #2563eb !important;
         border-radius: 10px !important;
-        padding: 16px !important;
     }
-    [data-testid="stFileUploaderDropzone"] div,
-    [data-testid="stFileUploaderDropzone"] span,
-    [data-testid="stFileUploaderDropzone"] small,
-    [data-testid="stFileUploaderDropzone"] svg {
-        color: #1a237e !important;
-        fill: #1565c0 !important;
-    }
-    [data-testid="stFileUploaderDropzone"] button {
-        background-color: #001ae6 !important;
-        color: #ffffff !important;
-        border: none !important;
-        border-radius: 6px !important;
-        font-weight: 700 !important;
-    }
-    [data-testid="stFileUploaderDropzone"] button * {
-        color: #ffffff !important;
-    }
+
+    /* 6. Botões Principais e Secundários Adaptativos */
     div.stButton > button {
         border-radius: 8px !important;
         font-weight: 700 !important;
         font-size: 13.5px !important;
         padding: 10px 14px !important;
         transition: all 0.15s ease !important;
-        background-color: #ffffff !important;
-        color: #1a237e !important;
-        border: 1.5px solid #b0bec5 !important;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.04) !important;
-    }
-    div.stButton > button p, div.stButton > button span {
-        color: #1a237e !important;
-        font-weight: 700 !important;
+        border: 1.5px solid rgba(128, 128, 128, 0.35) !important;
     }
     div.stButton > button:hover {
         transform: translateY(-1px);
-        border-color: #001ae6 !important;
-        background-color: #e3f2fd !important;
-        box-shadow: 0 4px 12px rgba(0, 26, 230, 0.15) !important;
+        border-color: #2563eb !important;
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25) !important;
     }
     div.stButton > button[kind="primary"] {
-        background-color: #001ae6 !important;
+        background: linear-gradient(135deg, #001ae6 0%, #2563eb 100%) !important;
         color: #ffffff !important;
-        border: 2px solid #001ae6 !important;
-        box-shadow: 0 4px 14px rgba(0, 26, 230, 0.28) !important;
+        border: none !important;
+        box-shadow: 0 4px 14px rgba(0, 26, 230, 0.3) !important;
     }
     div.stButton > button[kind="primary"] p,
     div.stButton > button[kind="primary"] span {
         color: #ffffff !important;
     }
-    div.stButton > button[kind="primary"]:hover {
-        background-color: #1565c0 !important;
-        border-color: #1565c0 !important;
-    }
+
+    /* 7. Botão de Exportar Excel em Verde Sucesso */
     div.stDownloadButton > button {
         background-color: #2e7d32 !important;
         color: #ffffff !important;
@@ -188,82 +110,104 @@ st.markdown("""
         border-radius: 8px !important;
         font-weight: 700 !important;
     }
-    div.stDownloadButton > button p, div.stDownloadButton > button span {
+    div.stDownloadButton > button p,
+    div.stDownloadButton > button span {
         color: #ffffff !important;
     }
 
-    /* Abas Principais e Sub-Abas Estilizadas como Botões Grandes (Troca em 0ms no Browser!) */
+    /* 8. Abas Principais e Sub-Abas (100% legíveis em Claro e Escuro + Troca em 0ms) */
     div[data-baseweb="tab-list"] {
         gap: 8px !important;
         background-color: transparent !important;
         padding-bottom: 6px !important;
     }
     button[data-baseweb="tab"] {
-        background-color: #ffffff !important;
-        color: #1a237e !important;
+        background-color: var(--secondary-background-color) !important;
+        color: var(--text-color) !important;
         border-radius: 8px !important;
-        padding: 12px 20px !important;
-        font-weight: 800 !important;
-        font-size: 14px !important;
-        border: 1.5px solid #b0bec5 !important;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.04) !important;
+        padding: 11px 18px !important;
+        font-weight: 700 !important;
+        font-size: 13.5px !important;
+        border: 1.5px solid rgba(128, 128, 128, 0.3) !important;
         flex: 1 !important;
         justify-content: center !important;
         transition: all 0.15s ease !important;
     }
-    button[data-baseweb="tab"] p {
-        color: #1a237e !important;
-        font-weight: 800 !important;
-        font-size: 14px !important;
+    button[data-baseweb="tab"] p,
+    button[data-baseweb="tab"] span {
+        color: var(--text-color) !important;
+        font-weight: 700 !important;
+        font-size: 13.5px !important;
     }
     button[data-baseweb="tab"]:hover {
-        border-color: #001ae6 !important;
-        background-color: #e3f2fd !important;
+        border-color: #3b82f6 !important;
     }
     button[data-baseweb="tab"][aria-selected="true"] {
-        background-color: #001ae6 !important;
+        background: linear-gradient(135deg, #001ae6 0%, #2563eb 100%) !important;
         color: #ffffff !important;
-        border: 2px solid #001ae6 !important;
-        box-shadow: 0 4px 14px rgba(0, 26, 230, 0.28) !important;
+        border: 1.5px solid #3b82f6 !important;
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35) !important;
     }
-    button[data-baseweb="tab"][aria-selected="true"] p {
+    button[data-baseweb="tab"][aria-selected="true"] p,
+    button[data-baseweb="tab"][aria-selected="true"] span {
         color: #ffffff !important;
     }
 
+    /* 9. Cartões de Métricas Adaptativos */
     div[data-testid="stMetric"] {
-        background-color: #ffffff !important;
-        border: 1px solid #cfd8dc !important;
-        border-left: 5px solid #001ae6 !important;
+        background-color: var(--secondary-background-color) !important;
+        border: 1px solid rgba(128, 128, 128, 0.25) !important;
+        border-left: 5px solid #2563eb !important;
         padding: 12px 16px !important;
         border-radius: 8px !important;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.05) !important;
     }
-    div[data-testid="stMetricLabel"] p, div[data-testid="stMetricLabel"] div {
-        color: #1a237e !important;
+    div[data-testid="stMetricLabel"] p,
+    div[data-testid="stMetricLabel"] div {
+        color: var(--text-color) !important;
+        opacity: 0.85;
         font-weight: 700 !important;
     }
     div[data-testid="stMetricValue"] div {
-        color: #001ae6 !important;
+        color: var(--text-color) !important;
         font-weight: 800 !important;
     }
+
+    /* 10. Banners e Títulos Adaptativos */
     .banner-dema {
-        background: #ffffff;
-        border: 2px solid #001ae6;
-        border-left: 8px solid #001ae6;
+        background-color: var(--secondary-background-color);
+        border: 1.5px solid rgba(37, 99, 235, 0.45);
+        border-left: 8px solid #2563eb;
         padding: 14px 20px;
         border-radius: 12px;
         margin-bottom: 16px;
-        box-shadow: 0 4px 16px rgba(0,0,0,0.06);
         font-family: Arial, sans-serif;
     }
+    .banner-dema h2 {
+        margin: 0;
+        color: var(--text-color) !important;
+        font-size: 22px;
+        font-weight: 800;
+    }
+    .banner-dema p {
+        margin: 4px 0 0 0;
+        color: var(--text-color) !important;
+        opacity: 0.88;
+        font-size: 13.5px;
+    }
+    .titulo-secao {
+        color: var(--text-color) !important;
+        font-weight: 800 !important;
+        margin-top: 4px !important;
+        margin-bottom: 8px !important;
+    }
     .visor-sucesso {
-        background: #e8f5e9;
-        border: 1px solid #a5d6a7;
-        border-left: 4px solid #2e7d32;
-        color: #1b5e20;
+        background-color: rgba(46, 125, 50, 0.15);
+        border: 1px solid #2e7d32;
+        border-left: 5px solid #2e7d32;
+        color: var(--text-color) !important;
         padding: 10px 14px;
-        border-radius: 6px;
-        font-weight: bold;
+        border-radius: 8px;
+        font-weight: 700;
         margin-bottom: 12px;
     }
 </style>
@@ -357,7 +301,6 @@ if "mapas_cache" not in st.session_state:
 
 MAPA_TURMA_STR, SET_TURMAS_POR_INSTRUTOR = st.session_state["mapas_cache"]
 
-# Cache de exportação Excel (evita recalcular ficheiros .xlsx ao navegar entre abas!)
 @st.cache_data(show_spinner=False, max_entries=15)
 def converter_df_para_excel_bytes(df_exportar, nome_aba="Dados"):
     buf = io.BytesIO()
@@ -983,8 +926,8 @@ def autenticar():
     senha_sistema = st.secrets.get("SENHA_PAINEL", "1234")
     st.markdown("""
     <div class="banner-dema">
-        <h2 style="margin:0;color:#001ae6;">⚡ Central Demà & RM — Equipe Bojador</h2>
-        <p style="margin:4px 0 0 0;color:#37474f;font-size:14px;">Insira a sua credencial de acesso para abrir os módulos.</p>
+        <h2>⚡ Central Demà & RM — Equipe Bojador</h2>
+        <p>Insira a sua credencial de acesso para abrir os módulos.</p>
     </div>
     """, unsafe_allow_html=True)
     senha_dig = st.text_input("Senha de acesso:", type="password")
@@ -1016,7 +959,7 @@ if "base_rm" not in st.session_state:
 # 4. BARRA LATERAL: BANCO DE TURMAS (OUT.2026) + BACKUP UNIFICADO CACHEADO
 # ==============================================================================
 with st.sidebar:
-    st.markdown("<h3 style='color:#001ae6;margin-bottom:4px;'>⚡ Suíte Equipe Bojador</h3>", unsafe_allow_html=True)
+    st.markdown("<h3 class='titulo-secao'>⚡ Suíte Equipe Bojador</h3>", unsafe_allow_html=True)
     st.caption("Base de Turmas: **Outubro 2026 (339 turmas)**")
 
     st.checkbox(
@@ -1078,7 +1021,7 @@ def renderizar_painel_faltas():
     if df_f.empty:
         return
 
-    st.markdown("<h4 style='color:#1a237e;'>⚡ Filtros Instantâneos (Instrutor, Código da Disciplina, Período e Turno)</h4>", unsafe_allow_html=True)
+    st.markdown("<h4 class='titulo-secao'>⚡ Filtros Instantâneos (Instrutor, Código da Disciplina, Período e Turno)</h4>", unsafe_allow_html=True)
     f1, f2, f3, f4, f5, f6 = st.columns([1.4, 1.4, 0.9, 1.1, 0.9, 1.2])
 
     with f1:
@@ -1207,7 +1150,7 @@ def renderizar_painel_moodle():
     if df_m.empty:
         return
 
-    st.markdown("<h4 style='color:#1a237e;'>⚡ Filtros Instantâneos do Moodle (Instrutor, Disciplina, Período e Turno)</h4>", unsafe_allow_html=True)
+    st.markdown("<h4 class='titulo-secao'>⚡ Filtros Instantâneos do Moodle (Instrutor, Disciplina, Período e Turno)</h4>", unsafe_allow_html=True)
     mc1, mc2, mc3, mc4, mc5, mc6 = st.columns([1.4, 1.4, 0.9, 1.1, 0.9, 1.2])
     with mc1:
         opcoes_inst_m = ["🌟 Todos os Instrutores"] + list(st.session_state["banco_turmas_atual"].keys()) + ["Não Mapeado / Outros"]
@@ -1307,7 +1250,7 @@ def renderizar_painel_rm():
     if df_r.empty:
         return
 
-    st.markdown("<h4 style='color:#1a237e;'>⚡ Filtros Instantâneos da Avaliação de Desempenho (RM)</h4>", unsafe_allow_html=True)
+    st.markdown("<h4 class='titulo-secao'>⚡ Filtros Instantâneos da Avaliação de Desempenho (RM)</h4>", unsafe_allow_html=True)
     rc1, rc2, rc3, rc4, rc5 = st.columns([1.4, 1.3, 1.2, 1.3, 1.4])
 
     with rc1:
@@ -1391,9 +1334,9 @@ def renderizar_painel_rm():
         st.dataframe(resumo_ciclo, use_container_width=True, hide_index=True)
 
 # ==============================================================================
-# 5. NAVEGAÇÃO PRINCIPAL POR ABAS NATIVAS (TRANSIÇÃO 0ms NO NAVEGADOR!)
+# 5. NAVEGAÇÃO PRINCIPAL POR ABAS NATIVAS (TRANSIÇÃO 0ms + 100% ADAPTATIVA)
 # ==============================================================================
-st.markdown("<h3 style='color:#1a237e;margin-top:0;'>⚡ Central de Acompanhamento Demà & RM</h3>", unsafe_allow_html=True)
+st.markdown("<h3 class='titulo-secao'>⚡ Central de Acompanhamento Demà & RM</h3>", unsafe_allow_html=True)
 qtd_faltas = len(st.session_state["base_faltas"])
 qtd_moodle = len(st.session_state["base_moodle"])
 qtd_rm = len(st.session_state["base_rm"])
@@ -1411,10 +1354,8 @@ aba_mod_faltas, aba_mod_moodle, aba_mod_rm, aba_mod_360 = st.tabs([
 with aba_mod_faltas:
     st.markdown("""
     <div class="banner-dema" style="border-left-color:#e65100;">
-        <h2 style="margin:0;color:#001ae6;">📅 MÓDULO 1: Controle de Faltas (SharePoint ➔ Diário de Classe RM)</h2>
-        <p style="margin:4px 0 0 0;color:#37474f;font-size:13.5px;">
-            Leitura Paralela Multi-Thread + Filtragem Instantânea: <b>Matrícula, Nome, Cidade, Estado, Disciplina, Turma e Turno</b>.
-        </p>
+        <h2>📅 MÓDULO 1: Controle de Faltas (SharePoint ➔ Diário de Classe RM)</h2>
+        <p>Leitura Paralela Multi-Thread + Filtragem Instantânea: <b>Matrícula, Nome, Cidade, Estado, Disciplina, Turma e Turno</b>.</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -1469,10 +1410,8 @@ with aba_mod_faltas:
 with aba_mod_moodle:
     st.markdown("""
     <div class="banner-dema">
-        <h2 style="margin:0;color:#001ae6;">📚 MÓDULO 2: Acompanhamento de Atividades (Moodle Demà Digital)</h2>
-        <p style="margin:4px 0 0 0;color:#37474f;font-size:13.5px;">
-            Importação por Texto ou Planilhas (<b>.TSV, .CSV, .XLSX, .XLS</b>) e filtragem instantânea por <b>Instrutor</b> e <b>Disciplina</b>.
-        </p>
+        <h2>📚 MÓDULO 2: Acompanhamento de Atividades (Moodle Demà Digital)</h2>
+        <p>Importação por Texto ou Planilhas (<b>.TSV, .CSV, .XLSX, .XLS</b>) e filtragem instantânea por <b>Instrutor</b> e <b>Disciplina</b>.</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -1558,10 +1497,8 @@ with aba_mod_moodle:
 with aba_mod_rm:
     st.markdown("""
     <div class="banner-dema" style="border-left-color:#1565c0;">
-        <h2 style="margin:0;color:#001ae6;">📝 MÓDULO 3: Avaliação de Desempenho (Consulta SQL TOTVS RM)</h2>
-        <p style="margin:4px 0 0 0;color:#37474f;font-size:13.5px;">
-            Curadoria automática da consulta <b>AvaliacaoGeral</b>: filtro de Pendentes/Andamento, Períodos Vencidos e Códigos de Acesso.
-        </p>
+        <h2>📝 MÓDULO 3: Avaliação de Desempenho (Consulta SQL TOTVS RM)</h2>
+        <p>Curadoria automática da consulta <b>AvaliacaoGeral</b>: filtro de Pendentes/Andamento, Períodos Vencidos e Códigos de Acesso.</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -1654,10 +1591,8 @@ with aba_mod_rm:
 with aba_mod_360:
     st.markdown("""
     <div class="banner-dema" style="border-left-color:#2e7d32;">
-        <h2 style="margin:0;color:#001ae6;">🌐 MÓDULO 4: Visão 360º do Jovem (Faltas + Moodle + Avaliação RM)</h2>
-        <p style="margin:4px 0 0 0;color:#37474f;font-size:13.5px;">
-            Busca unificada e instantânea nas 3 bases simultaneamente.
-        </p>
+        <h2>🌐 MÓDULO 4: Visão 360º do Jovem (Faltas + Moodle + Avaliação RM)</h2>
+        <p>Busca unificada e instantânea nas 3 bases simultaneamente.</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -1668,21 +1603,21 @@ with aba_mod_360:
             t_up = termo_360.strip().upper()
             c1, c2, c3 = st.columns(3)
             with c1:
-                st.markdown("<h4 style='color:#e65100;'>📅 1. Faltas</h4>", unsafe_allow_html=True)
+                st.markdown("<h4 class='titulo-secao'>📅 1. Faltas</h4>", unsafe_allow_html=True)
                 df_f = st.session_state["base_faltas"]
                 if not df_f.empty:
                     res_f = df_f[df_f["_busca_idx"].str.contains(t_up, regex=False, na=False)]
                     cols_360_f = ["Data_Falta", "Matricula", "Nome", "Disciplina", "Turma", "Turno"]
                     st.dataframe(res_f[[c for c in cols_360_f if c in res_f.columns]], use_container_width=True, hide_index=True)
             with c2:
-                st.markdown("<h4 style='color:#001ae6;'>📚 2. Atividades Moodle</h4>", unsafe_allow_html=True)
+                st.markdown("<h4 class='titulo-secao'>📚 2. Atividades Moodle</h4>", unsafe_allow_html=True)
                 df_m = st.session_state["base_moodle"]
                 if not df_m.empty:
                     res_m = df_m[df_m["_busca_idx"].str.contains(t_up, regex=False, na=False)]
                     cols_360_m = ["Data_Coleta", "Disciplina", "Turma", "Jovem", "Atividade"]
                     st.dataframe(res_m[[c for c in cols_360_m if c in res_m.columns]], use_container_width=True, hide_index=True)
             with c3:
-                st.markdown("<h4 style='color:#1565c0;'>📝 3. Avaliação RM</h4>", unsafe_allow_html=True)
+                st.markdown("<h4 class='titulo-secao'>📝 3. Avaliação RM</h4>", unsafe_allow_html=True)
                 df_r = st.session_state["base_rm"]
                 if not df_r.empty:
                     res_r = df_r[df_r["_busca_idx"].str.contains(t_up, regex=False, na=False)]
