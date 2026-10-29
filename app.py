@@ -1595,11 +1595,12 @@ qtd_faltas = len(st.session_state["base_faltas"])
 qtd_moodle = len(st.session_state["base_moodle"])
 qtd_rm = len(st.session_state["base_rm"])
 
-aba_mod_faltas, aba_mod_moodle, aba_mod_rm, aba_mod_360 = st.tabs([
-    f"📅 1. CONTROLE DE FALTAS ({qtd_faltas})",
-    f"📚 2. ATIVIDADES MOODLE ({qtd_moodle})",
-    f"📝 3. AVALIAÇÃO RM ({qtd_rm})",
-    "🌐 4. VISÃO 360º GERAL"
+aba_mod_faltas, aba_mod_moodle, aba_mod_rm, aba_mod_plano, aba_mod_360 = st.tabs([
+    f"📋 1. CONTROLE DE FALTAS ({qtd_faltas})",
+    f"📊 2. ATIVIDADES MOODLE ({qtd_moodle})",
+    f"📑 3. AVALIAÇÃO RM ({qtd_rm})",
+    "📅 4. PLANO DE AULA (RM)",
+    "🔍 5. VISÃO 360º GERAL"
 ])
 
 # ------------------------------------------------------------------------------
@@ -1839,7 +1840,14 @@ with aba_mod_rm:
                 st.rerun()
 
     renderizar_painel_rm()
-
+with aba_mod_plano:
+    st.markdown("""
+    <div class="banner-dema" style="border-left-color:#00897b;">
+        <h2>📅 MÓDULO 4: Automação de Plano de Aula (Diário de Classe TOTVS RM)</h2>
+        <p>Carregue o Calendário Mensal (Diário ou Semanal), preserve semanas de <b>Olimpismo</b> e gere a configuração automática para todas as Filiais/Estados.</p>
+    </div>
+    """, unsafe_allow_html=True)
+    renderizar_painel_plano_aula()
 # ------------------------------------------------------------------------------
 # ABA 4: VISÃO 360º GERAL
 # ------------------------------------------------------------------------------
