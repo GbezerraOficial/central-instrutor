@@ -21,7 +21,7 @@ st.set_page_config(
 )
 
 # ==============================================================================
-# 1. LOGIN COM DIFERENCIAÇÃO AUTOMÁTICA: UTILIZADOR FINAL vs ADMINISTRADOR
+# 1. AUTENTICAÇÃO SEGURA (UTILIZADOR FINAL vs ADMINISTRADOR)
 # ==============================================================================
 def autenticar():
     if st.session_state.get("logado", False):
@@ -52,13 +52,13 @@ def autenticar():
 
     senha_dig = st.text_input("Senha de acesso:", type="password")
     if senha_dig:
-        dig_bytes = senha_dig.encode("utf-8")
-        if hmac.compare_digest(dig_bytes, senha_admin.encode("utf-8")):
+        dig_bytes = senha_dig.strip().encode("utf-8")
+        if hmac.compare_digest(dig_bytes, senha_admin.strip().encode("utf-8")):
             st.session_state["logado"] = True
             st.session_state["is_admin"] = True
             st.session_state["tentativas_login"] = 0
             st.rerun()
-        elif hmac.compare_digest(dig_bytes, senha_usuario.encode("utf-8")):
+        elif hmac.compare_digest(dig_bytes, senha_usuario.strip().encode("utf-8")):
             st.session_state["logado"] = True
             st.session_state["is_admin"] = False
             st.session_state["tentativas_login"] = 0
@@ -72,7 +72,6 @@ def autenticar():
                 st.error(f"❌ Senha incorreta ({st.session_state['tentativas_login']}/5).")
     return False
 
-# Bloqueia os ícones de topo na tela de login por padrão
 if not st.session_state.get("logado", False):
     st.markdown("""
     <style>
@@ -86,11 +85,10 @@ if not autenticar():
     st.stop()
 
 # ==============================================================================
-# 2. DESIGN 100% ADAPTATIVO (CLARO/ESCURO) + OCULTAÇÃO DE ÍCONES PARA NÃO-ADMINS
+# 2. DESIGN ADAPTATIVO (CLARO/ESCURO) + CONTROLO DE ÍCONES POR PERFIL
 # ==============================================================================
 css_ocultar_icones_usuario = ""
 if not st.session_state.get("is_admin", False):
-    # Oculta Share, Estrela, Lápis, GitHub e Manage App, mantendo APENAS os 3 pontinhos (⋮ -> Theme)
     css_ocultar_icones_usuario = """
     [data-testid="stToolbarActions"],
     [data-testid="stToolbarActionButton"],
@@ -279,7 +277,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 3. BANCO DE TURMAS (OUTUBRO 2026) E FUNÇÕES DE RESET DE FILTROS
+# 3. BANCO DE TURMAS (OUTUBRO 2026) E FUNÇÕES DE RESET BLINDADAS
 # ==============================================================================
 UFS_BRASIL = {
     "AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS", "MT",
@@ -333,34 +331,20 @@ BANCO_TURMAS_PADRAO = {
     }
 }
 
-# Callbacks de Limpeza Instantânea de Filtros (Executam antes de renderizar os widgets)
+# Callbacks de Reset usando .pop() (100% imunes a conflitos de opções dinâmicas)
 def limpar_filtros_faltas():
-    st.session_state["f_inst"] = "🌟 Todos os Instrutores"
-    st.session_state["f_disc"] = "Todas as Disciplinas"
-    st.session_state["f_modo"] = "📅 Dia"
-    st.session_state["f_dia"] = "Todos os Dias"
-    st.session_state["f_sem"] = "Todas as Semanas"
-    st.session_state["f_mes"] = "Todos os Meses"
-    st.session_state["f_turno"] = "Todos (M + V)"
+    for k in ["f_inst", "f_disc", "f_modo", "f_dia", "f_sem", "f_mes", "f_turno"]:
+        st.session_state.pop(k, None)
     st.session_state["f_busca"] = ""
 
 def limpar_filtros_moodle():
-    st.session_state["m_inst"] = "🌟 Todos os Instrutores"
-    st.session_state["m_disc"] = "Todas as Disciplinas"
-    st.session_state["m_modo"] = "📅 Dia"
-    st.session_state["m_dia"] = "Todos os Dias"
-    st.session_state["m_sem"] = "Todas as Semanas"
-    st.session_state["m_mes"] = "Todos os Meses"
-    st.session_state["m_turno"] = "Todos (M + V)"
+    for k in ["m_inst", "m_disc", "m_modo", "m_dia", "m_sem", "m_mes", "m_turno"]:
+        st.session_state.pop(k, None)
     st.session_state["m_busca"] = ""
 
 def limpar_filtros_rm():
-    st.session_state["r_inst"] = "🌟 Todos os Instrutores"
-    if not st.session_state.get("base_rm", pd.DataFrame()).empty:
-        status_disp = sorted(st.session_state["base_rm"]["STATUS_PROVA"].unique().tolist())
-        st.session_state["r_st_prova"] = [s for s in status_disp if s.upper() != "FINALIZADO"] or status_disp
-    st.session_state["r_st_per"] = "Todos"
-    st.session_state["r_ciclo"] = "Todos os Períodos"
+    for k in ["r_inst", "r_st_prova", "r_st_per", "r_ciclo"]:
+        st.session_state.pop(k, None)
     st.session_state["r_busca"] = ""
 
 def limpar_filtros_360():
@@ -380,6 +364,8 @@ def normalizar_codigo_turma(s):
     txt = re.sub(r"\.0+(\d+)$", r".\1", txt)
     return txt
 
+if "up_ver" not in st.session_state:
+    st.session_state["up_ver"] = 0
 if "banco_turmas_atual" not in st.session_state:
     st.session_state["banco_turmas_atual"] = BANCO_TURMAS_PADRAO
 if "turmas_desativadas" not in st.session_state:
@@ -511,13 +497,22 @@ def calcular_semana_vetorizado(serie_datas):
     iso = datas_dt.dt.isocalendar()
     return (iso["year"].astype(str) + "-Semana " + iso["week"].apply(lambda w: f"{int(w):02d}" if pd.notna(w) else "00")).fillna("Semana Atual")
 
-def ler_texto_rm_blindado(texto_bruto):
-    linhas = [l for l in texto_bruto.splitlines() if l.strip()]
+def ler_texto_tabular_blindado(texto_bruto):
+    """
+    Leitor universal para Moodle e RM com QUOTE_NONE (imune a aspas soltas,
+    cabeçalhos duplicados no meio de colagens e colunas extras).
+    """
+    linhas = [l for l in str(texto_bruto).splitlines() if l.strip()]
     if len(linhas) <= 1:
         return pd.DataFrame()
 
-    sep = "\t" if "\t" in linhas[0] else (";" if ";" in linhas[0] else ",")
-    lidas = [r for r in csv.reader(linhas, delimiter=sep) if any(c.strip() for c in r)]
+    prim = linhas[0]
+    sep = "\t" if "\t" in prim else (";" if ";" in prim else ",")
+    if sep == "\t":
+        lidas = [r for r in csv.reader(linhas, delimiter="\t", quoting=csv.QUOTE_NONE) if any(c.strip() for c in r)]
+    else:
+        lidas = [r for r in csv.reader(linhas, delimiter=sep) if any(c.strip() for c in r)]
+
     if len(lidas) <= 1:
         return pd.DataFrame()
 
@@ -540,7 +535,8 @@ def ler_texto_rm_blindado(texto_bruto):
 
     dados = []
     for r in lidas[1:]:
-        if any("STATUS_PROVA" in str(x).upper() for x in r[:3]):
+        r_up = {str(x).strip().upper() for x in r[:3] if str(x).strip()}
+        if r_up and r_up.issubset({"INSTRUTOR", "INSTRUTOR_FILTRO", "STATUS_PROVA", "DISCIPLINA", "TURNO"}):
             continue
         if len(r) < max_cols:
             r = r + [""] * (max_cols - len(r))
@@ -601,6 +597,7 @@ def indexar_base_faltas(df):
     cond_v = df["_turma_norm"].str.contains("V.", regex=False) | arq_orig.str.contains("VES|_V\\.", regex=True)
     df["Turno"] = np.select([cond_m, cond_v], ["M - Manhã", "V - Tarde"], default="Outro")
 
+    df["_id_unico"] = df["Data_Falta"] + "|" + df["Disciplina"] + "|" + df["Turma"] + "|" + df["Matricula"] + "|" + df["Nome"]
     df["_busca_idx"] = (
         df["Matricula"] + " " + df["Nome"] + " " + df["Cidade"].astype(str) + " " +
         df["Estado"].astype(str) + " " + df["Disciplina"] + " " + df["Turma"]
@@ -873,7 +870,7 @@ def converter_bytes_em_dataframe(bytes_arq, nome_arq):
             if linhas_txt:
                 for sep in ("\t", ";", ","):
                     if sep in linhas_txt[0]:
-                        lidas = [r for r in csv.reader(linhas_txt, delimiter=sep) if any(c.strip() for c in r)]
+                        lidas = [r for r in csv.reader(linhas_txt, delimiter=sep, quoting=csv.QUOTE_NONE) if any(c.strip() for c in r)]
                         if lidas and max(len(r) for r in lidas) >= 2:
                             return pd.DataFrame(lidas), f"csv ({sep})"
         except Exception:
@@ -1016,6 +1013,8 @@ if "base_faltas" not in st.session_state:
 if "base_rm" not in st.session_state:
     st.session_state["base_rm"] = pd.DataFrame()
 
+ver_up = st.session_state["up_ver"]
+
 # ==============================================================================
 # 5. BARRA LATERAL: BACKUP AUTOMÁTICO + FERRAMENTAS EXCLUSIVAS DE ADMIN
 # ==============================================================================
@@ -1040,9 +1039,9 @@ with st.sidebar:
 
     st.divider()
     st.caption("📂 **Backup Unificado (Carregamento Automático):**")
-    arq_hist = st.file_uploader("Solte o Histórico (.xlsx) para restaurar:", type=["xlsx"], key="up_hist_auto")
+    arq_hist = st.file_uploader("Solte o Histórico (.xlsx) para restaurar:", type=["xlsx"], key=f"up_hist_{ver_up}")
     if arq_hist:
-        ass_hist = f"{arq_hist.name}_{arq_hist.size}"
+        ass_hist = f"{arq_hist.name}_{arq_hist.size}_{ver_up}"
         if st.session_state.get("ultimo_hist_carregado") != ass_hist:
             xls = pd.ExcelFile(arq_hist)
             if "Historico_Moodle" in xls.sheet_names:
@@ -1074,13 +1073,12 @@ with st.sidebar:
             use_container_width=True
         )
 
-    # Ferramentas restritas ao Administrador (Guilherme)
     if st.session_state.get("is_admin", False):
         st.divider()
         with st.expander("👑 Painel do Administrador"):
-            arq_grade = st.file_uploader("Atualizar Grade Horária (.xlsx):", type=["xlsx", "xls"], key="up_grade_auto")
+            arq_grade = st.file_uploader("Atualizar Grade Horária (.xlsx):", type=["xlsx", "xls"], key=f"up_grade_{ver_up}")
             if arq_grade:
-                ass_grade = f"{arq_grade.name}_{arq_grade.size}"
+                ass_grade = f"{arq_grade.name}_{arq_grade.size}_{ver_up}"
                 if st.session_state.get("ultima_grade_lida") != ass_grade:
                     ok, msg = atualizar_banco_via_planilha_grade(arq_grade)
                     st.session_state["ultima_grade_lida"] = ass_grade
@@ -1094,16 +1092,17 @@ with st.sidebar:
                 st.session_state["base_faltas"] = pd.DataFrame()
                 st.session_state["base_moodle"] = pd.DataFrame()
                 st.session_state["base_rm"] = pd.DataFrame()
-                st.session_state["ultimos_arquivos_lidos"] = []
-                st.session_state["ultimos_arquivos_moodle"] = []
-                st.session_state["ultimos_arquivos_rm"] = []
+                st.session_state["up_ver"] += 1
+                for ch in ["ultimos_arquivos_lidos", "ultima_assinatura_moodle", "ultima_assinatura_rm", "ultimo_diagnostico", "ultimo_hist_carregado"]:
+                    st.session_state.pop(ch, None)
+                limpar_todos_os_filtros_global()
                 st.rerun()
     else:
         st.divider()
         with st.expander("🔑 Acesso Admin"):
             senha_adm_side = st.text_input("Chave de Administrador:", type="password", key="adm_unlock")
             if senha_adm_side:
-                if hmac.compare_digest(senha_adm_side.encode("utf-8"), str(st.secrets.get("SENHA_ADMIN", "admin2026")).encode("utf-8")):
+                if hmac.compare_digest(senha_adm_side.strip().encode("utf-8"), str(st.secrets.get("SENHA_ADMIN", "admin2026")).strip().encode("utf-8")):
                     st.session_state["is_admin"] = True
                     st.rerun()
                 else:
@@ -1194,7 +1193,7 @@ def renderizar_painel_faltas():
         "📘 3. RESUMO POR DISCIPLINA E TURMA"
     ])
 
-    colunas_foco = ["Lancado_RM", "Matricula", "Nome", "Cidade", "Estado", "Disciplina", "Turma", "Turno", "Data_Falta", "Instrutor"]
+    colunas_foco = ["Lancado_RM", "Matricula", "Nome", "Cidade", "Estado", "Disciplina", "Turma", "Turno", "Data_Falta", "Instrutor", "_id_unico"]
 
     with sub_f1:
         df_ordenado = df_sub[colunas_foco].sort_values(by=["Turno", "Disciplina", "Turma", "Nome"])
@@ -1205,22 +1204,29 @@ def renderizar_painel_faltas():
             key="editor_faltas_rm",
             column_config={
                 "Lancado_RM": st.column_config.CheckboxColumn("✅ RM", default=False),
-                "Matricula": st.column_config.TextColumn("Matrícula do Jovem"),
-                "Nome": st.column_config.TextColumn("Nome"),
-                "Cidade": st.column_config.TextColumn("Cidade"),
-                "Estado": st.column_config.TextColumn("Estado"),
-                "Disciplina": st.column_config.TextColumn("Disciplina"),
-                "Turma": st.column_config.TextColumn("Turma"),
-                "Turno": st.column_config.TextColumn("Turno"),
-                "Data_Falta": st.column_config.TextColumn("Data"),
-                "Instrutor": st.column_config.TextColumn("Instrutor(a)")
+                "Matricula": st.column_config.TextColumn("Matrícula do Jovem", disabled=True),
+                "Nome": st.column_config.TextColumn("Nome", disabled=True),
+                "Cidade": st.column_config.TextColumn("Cidade", disabled=True),
+                "Estado": st.column_config.TextColumn("Estado", disabled=True),
+                "Disciplina": st.column_config.TextColumn("Disciplina", disabled=True),
+                "Turma": st.column_config.TextColumn("Turma", disabled=True),
+                "Turno": st.column_config.TextColumn("Turno", disabled=True),
+                "Data_Falta": st.column_config.TextColumn("Data", disabled=True),
+                "Instrutor": st.column_config.TextColumn("Instrutor(a)", disabled=True),
+                "_id_unico": None
             }
         )
-        st.session_state["base_faltas"].loc[df_editado.index, "Lancado_RM"] = df_editado["Lancado_RM"]
+        # Sincronização por chave única (_id_unico), imune a reordenações de coluna no navegador
+        mapa_rm = dict(zip(df_editado["_id_unico"], df_editado["Lancado_RM"]))
+        mask_ids = st.session_state["base_faltas"]["_id_unico"].isin(mapa_rm.keys())
+        st.session_state["base_faltas"].loc[mask_ids, "Lancado_RM"] = (
+            st.session_state["base_faltas"].loc[mask_ids, "_id_unico"].map(mapa_rm)
+        )
 
+        cols_export = [c for c in colunas_foco if c != "_id_unico"]
         st.download_button(
             label="📥 Exportar Tabela Filtrada (.xlsx)",
-            data=converter_df_para_excel_bytes(df_ordenado, "Faltas_Filtradas"),
+            data=converter_df_para_excel_bytes(df_ordenado[cols_export], "Faltas_Filtradas"),
             file_name=f"Faltas_Filtradas_{datetime.now().strftime('%d-%m-%Y')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
@@ -1473,7 +1479,7 @@ aba_mod_faltas, aba_mod_moodle, aba_mod_rm, aba_mod_360 = st.tabs([
 ])
 
 # ------------------------------------------------------------------------------
-# ABA 1: CONTROLE DE FALTAS (CARREGAMENTO AUTOMÁTICO)
+# ABA 1: CONTROLE DE FALTAS
 # ------------------------------------------------------------------------------
 with aba_mod_faltas:
     st.markdown("""
@@ -1499,11 +1505,11 @@ with aba_mod_faltas:
                 "Arraste aqui o ficheiro .ZIP ou as folhas de cálculo (.xls / .xlsx):",
                 type=["zip", "xls", "xlsx", "csv", "tsv"],
                 accept_multiple_files=True,
-                key="uploader_faltas_auto"
+                key=f"uploader_faltas_{ver_up}"
             )
 
         if arquivos_up:
-            assinatura_atual = [f"{a.name}_{a.size}" for a in arquivos_up]
+            assinatura_atual = [f"{a.name}_{a.size}_{ver_up}" for a in arquivos_up]
             if st.session_state.get("ultimos_arquivos_lidos") != assinatura_atual:
                 with st.spinner("⚡ Leitura paralela de alta velocidade em curso..."):
                     itens_extraidos = extrair_itens_upload(arquivos_up)
@@ -1517,6 +1523,13 @@ with aba_mod_faltas:
                             subset=["Data_Falta", "Disciplina", "Turma", "Matricula", "Nome"], keep="first"
                         ).reset_index(drop=True)
                         st.session_state["base_faltas"] = df_acum
+                        # Cruzamento retroativo: se já houver Avaliação RM carregada, enriquece Turma/Matrícula
+                        if not st.session_state["base_rm"].empty:
+                            st.session_state["base_rm"] = indexar_base_rm(
+                                st.session_state["base_rm"],
+                                st.session_state["base_faltas"],
+                                st.session_state["base_moodle"]
+                            )
                         st.rerun()
 
         if "ultimo_diagnostico" in st.session_state:
@@ -1530,7 +1543,7 @@ with aba_mod_faltas:
     renderizar_painel_faltas()
 
 # ------------------------------------------------------------------------------
-# ABA 2: ATIVIDADES MOODLE (CARREGAMENTO AUTOMÁTICO SEM CLICAR EM BOTÃO!)
+# ABA 2: ATIVIDADES MOODLE
 # ------------------------------------------------------------------------------
 with aba_mod_moodle:
     st.markdown("""
@@ -1566,30 +1579,26 @@ with aba_mod_moodle:
                 "Opção A: Cole (Ctrl+V) o relatório da Extensão (processa automaticamente):",
                 height=125,
                 placeholder="Instrutor\tDisciplina\tTurno\tTurma\tAtividade\tStatus\tJovem\tEmail_Enviado",
-                key="txt_moodle_auto"
+                key=f"txt_moodle_{ver_up}"
             )
         with col_in_m2:
             arqs_moodle_up = st.file_uploader(
                 "Opção B: Arraste Planilhas / Ficheiros do Moodle (.tsv, .csv, .xlsx, .xls, .zip):",
                 type=["tsv", "csv", "txt", "xlsx", "xls", "zip"],
                 accept_multiple_files=True,
-                key="uploader_moodle_files"
+                key=f"uploader_moodle_{ver_up}"
             )
 
-        # PROCESSAMENTO AUTOMÁTICO MOODLE (TEXTO COLADO OU FICHEIROS SOLTOS)
         hash_txt_m = hashlib.md5(txt_m.strip().encode("utf-8")).hexdigest() if txt_m.strip() else ""
         ass_arqs_m = [f"{a.name}_{a.size}" for a in arqs_moodle_up] if arqs_moodle_up else []
-        assinatura_moodle_atual = f"{hash_txt_m}_{ass_arqs_m}_{dt_moodle}_{disc_moodle_in.strip()}"
+        assinatura_moodle_atual = f"{hash_txt_m}_{ass_arqs_m}_{dt_moodle}_{disc_moodle_in.strip()}_{ver_up}"
 
         if (txt_m.strip() or arqs_moodle_up) and st.session_state.get("ultima_assinatura_moodle") != assinatura_moodle_atual:
             novos_m = []
             if txt_m.strip():
-                try:
-                    df_tm = pd.read_csv(io.StringIO(txt_m.strip()), sep="\t")
-                    if not df_tm.empty:
-                        novos_m.append(df_tm)
-                except Exception as e:
-                    st.error(f"Erro ao ler texto colado: {e}")
+                df_tm = ler_texto_tabular_blindado(txt_m.strip())
+                if not df_tm.empty:
+                    novos_m.append(df_tm)
 
             if arqs_moodle_up:
                 itens_m = extrair_itens_upload(arqs_moodle_up)
@@ -1606,8 +1615,7 @@ with aba_mod_moodle:
                                 novos_m.append(df_m_arq)
                         else:
                             conteudo_m = b_item.decode("utf-8-sig", errors="ignore")
-                            sep_m = "\t" if "\t" in conteudo_m else (";" if ";" in conteudo_m else ",")
-                            df_cm = pd.read_csv(io.StringIO(conteudo_m), sep=sep_m)
+                            df_cm = ler_texto_tabular_blindado(conteudo_m)
                             if not df_cm.empty:
                                 novos_m.append(df_cm)
                     except Exception as e:
@@ -1625,12 +1633,18 @@ with aba_mod_moodle:
                     subset=["Data_Coleta", "Disciplina", "Turma", "Atividade", "Jovem"], keep="last"
                 ).reset_index(drop=True)
                 st.session_state["base_moodle"] = df_comb_m
+                if not st.session_state["base_rm"].empty:
+                    st.session_state["base_rm"] = indexar_base_rm(
+                        st.session_state["base_rm"],
+                        st.session_state["base_faltas"],
+                        st.session_state["base_moodle"]
+                    )
                 st.rerun()
 
     renderizar_painel_moodle()
 
 # ------------------------------------------------------------------------------
-# ABA 3: AVALIAÇÃO DE DESEMPENHO RM (CARREGAMENTO AUTOMÁTICO SEM CLICAR EM BOTÃO!)
+# ABA 3: AVALIAÇÃO DE DESEMPENHO RM
 # ------------------------------------------------------------------------------
 with aba_mod_rm:
     st.markdown("""
@@ -1647,14 +1661,14 @@ with aba_mod_rm:
                 "Opção A: Cole (Ctrl+V) os dados copiados pelo botão da Extensão no RM:",
                 height=125,
                 placeholder="INSTRUTOR_FILTRO\tSTATUS_PROVA\tSTATUS_PERIODO\tCODPESSOA\tCODPROVA\tCODPERIODO\tNOMEPROVA\tNOMEPERIODO\tDATAINICIAL\tDATAFINAL\tCODIGO_ACESSO\tNOME\tCIDADE",
-                key="txt_rm_auto"
+                key=f"txt_rm_{ver_up}"
             )
         with col_rm_in2:
             arqs_rm_up = st.file_uploader(
                 "Opção B: Arraste o ficheiro avaliacao_rm.tsv / .xlsx / .zip baixado:",
                 type=["tsv", "csv", "txt", "xlsx", "xls", "zip"],
                 accept_multiple_files=True,
-                key="uploader_rm_files"
+                key=f"uploader_rm_{ver_up}"
             )
 
         st.button(
@@ -1664,15 +1678,14 @@ with aba_mod_rm:
             use_container_width=True
         )
 
-        # PROCESSAMENTO AUTOMÁTICO AVALIAÇÃO RM (TEXTO OU FICHEIROS)
         hash_txt_r = hashlib.md5(txt_rm.strip().encode("utf-8")).hexdigest() if txt_rm.strip() else ""
         ass_arqs_r = [f"{a.name}_{a.size}" for a in arqs_rm_up] if arqs_rm_up else []
-        assinatura_rm_atual = f"{hash_txt_r}_{ass_arqs_r}"
+        assinatura_rm_atual = f"{hash_txt_r}_{ass_arqs_r}_{ver_up}"
 
         if (txt_rm.strip() or arqs_rm_up) and st.session_state.get("ultima_assinatura_rm") != assinatura_rm_atual:
             novos_rm_auto = []
             if txt_rm.strip():
-                df_txt_r = ler_texto_rm_blindado(txt_rm.strip())
+                df_txt_r = ler_texto_tabular_blindado(txt_rm.strip())
                 if not df_txt_r.empty:
                     novos_rm_auto.append(df_txt_r)
 
@@ -1684,7 +1697,7 @@ with aba_mod_rm:
                             df_r_temp = pd.read_excel(io.BytesIO(b_item))
                         else:
                             cont_r = b_item.decode("utf-8-sig", errors="ignore")
-                            df_r_temp = ler_texto_rm_blindado(cont_r)
+                            df_r_temp = ler_texto_tabular_blindado(cont_r)
                         if not df_r_temp.empty:
                             novos_rm_auto.append(df_r_temp)
                     except Exception as e:
