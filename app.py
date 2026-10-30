@@ -292,93 +292,132 @@ REGEX_TURMA_APC = re.compile(r"(APC\.?\d+|\d+\.[A-Z0-9]+\.\d+[MV])", re.I)
 REGEX_MATRICULA = re.compile(r"^\d{3,12}$")
 
 TURMAS_DESATIVADAS_PADRAO = {
-    "3872.APC01.4V.101", "3872.APC01.4V.89", "3872.APC01.4V.92", "671.APC01.4V.101",
+    "3872.APC01.2M.52", "3872.APC01.2M.55", "3872.APC01.4V.101", "671.APC01.4V.101",
     "671.APC02.2V.100", "671.APC02.4M.54", "671.APC02.4V.54", "671.APC02.4V.78"
 }
 
 BANCO_TURMAS_PADRAO = {
     "Guilherme Gomes Bezerra": {
         "M": [
-            "03872.APC09.0M.54", "3872.APC09.0M.100", "3872.APC09.0M.104", "3872.APC09.0M.105",
-            "3872.APC09.0M.106", "3872.APC09.0M.108", "3872.APC09.0M.115", "3872.APC09.0M.91",
-            "3872.APC09.0M.92"
+            "03872.APC09.0M.54", "3872.APC09.0M.100", "3872.APC09.0M.104", "3872.APC09.0M.105", "3872.APC09.0M.106",
+            "3872.APC09.0M.108", "3872.APC09.0M.115", "3872.APC09.0M.52", "3872.APC09.0M.55", "3872.APC09.0M.57",
+            "3872.APC09.0M.71", "3872.APC09.0M.74", "3872.APC09.0M.76", "3872.APC09.0M.78", "3872.APC09.0M.85",
+            "3872.APC09.0M.89", "3872.APC09.0M.91", "3872.APC09.0M.92", "3872.APC09.0M.94", "3872.APC09.0M.96",
+            "3872.APC09.0M.97", "3872.APC09.0M.98", "3872.APC09.1M.71", "4.0.APC02.2M.91", "4.0.APC02.3M.91",
+            "4.0.APC02.4M.91", "4.0.APC02.5M.91", "4.0.APC09.0M.91", "4.APC02.2M.54", "4.APC02.2M.71",
+            "4.APC02.2M.85", "4.APC02.3M.100", "4.APC02.3M.74", "4.APC02.3M.78", "4.APC02.3M.79",
+            "4.APC02.3M.89", "4.APC02.4M.100", "4.APC02.4M.103", "4.APC02.4M.71", "4.APC02.4M.98",
+            "4.APC02.5M.100", "4.APC09.0M.71", "671.APC09.0M.105", "671.APC09.0M.106", "671.APC09.0M.54",
+            "671.APC09.0M.71", "671.APC09.0M.74", "671.APC09.0M.78", "671.APC09.0M.85", "671.APC09.0M.91",
+            "671.APC09.0M.97"
         ],
         "V": [
-            "3872.APC09.0V.01", "3872.APC09.0V.100", "3872.APC09.0V.104", "3872.APC09.0V.105",
-            "3872.APC09.0V.106", "3872.APC09.0V.108", "3872.APC09.0V.115"
+            "3872.APC09.0V.01", "3872.APC09.0V.100", "3872.APC09.0V.104", "3872.APC09.0V.105", "3872.APC09.0V.106",
+            "3872.APC09.0V.108", "3872.APC09.0V.115", "3872.APC09.0V.52", "3872.APC09.0V.54", "3872.APC09.0V.55",
+            "3872.APC09.0V.57", "3872.APC09.0V.71", "3872.APC09.0V.74", "3872.APC09.0V.76", "3872.APC09.0V.78",
+            "3872.APC09.0V.85", "3872.APC09.0V.89", "3872.APC09.0V.91", "3872.APC09.0V.94", "3872.APC09.0V.96",
+            "3872.APC09.0V.97", "3872.APC09.0V.98", "3872.APC09.1V.71", "4.0.APC02.2V.91", "4.0.APC02.3V.91",
+            "4.0.APC02.4V.91", "4.0.APC02.5V.91", "4.0.APC09.0V.91", "4.APC02.2V.100", "4.APC02.2V.71",
+            "4.APC02.2V.85", "4.APC02.2V.94", "4.APC02.3V.100", "4.APC02.3V.103", "4.APC02.3V.78",
+            "4.APC02.4V.100", "4.APC02.4V.103", "4.APC02.4V.71", "4.APC02.4V.74", "4.APC02.4V.96",
+            "4.APC09.0V.78", "671.APC09.0V.106", "671.APC09.0V.54", "671.APC09.0V.71", "671.APC09.0V.74",
+            "671.APC09.0V.78", "671.APC09.0V.85", "671.APC09.0V.91", "671.APC09.0V.96"
         ]
     },
     "Cleonice Algarves": {
         "M": [
-            "3872.APC02.2M.100", "3872.APC02.2M.103", "3872.APC02.2M.108", "3872.APC02.2M.113",
-            "3872.APC02.2M.52", "3872.APC02.2M.54", "3872.APC02.2M.71"
+            "3872.APC02.2M.100", "3872.APC02.2M.103", "3872.APC02.2M.108", "3872.APC02.2M.113", "3872.APC02.2M.52",
+            "3872.APC02.2M.54", "3872.APC02.2M.71", "3872.APC02.2M.85", "3872.APC02.2M.89", "3872.APC02.2M.91",
+            "3872.APC02.2M.96", "3872.APC02.2M.98", "3872.APC02.3M.104", "3872.APC02.3M.96", "3872.APC02.4M.100",
+            "3872.APC02.4M.113", "3872.APC02.4M.52", "3872.APC02.4M.54", "3872.APC02.4M.57", "3872.APC02.4M.85",
+            "3872.APC02.4M.94", "3872.APC02.4M.96", "3872.APC02.6M.106"
         ],
         "V": [
-            "3872.APC02.2V.100", "3872.APC02.2V.104", "3872.APC02.2V.106", "3872.APC02.2V.108",
-            "3872.APC02.2V.71", "3872.APC02.2V.78", "3872.APC02.2V.85"
+            "3872.APC02.2V.100", "3872.APC02.2V.104", "3872.APC02.2V.106", "3872.APC02.2V.108", "3872.APC02.2V.71",
+            "3872.APC02.2V.78", "3872.APC02.2V.85", "3872.APC02.2V.89", "3872.APC02.2V.91", "3872.APC02.2V.98",
+            "3872.APC02.3V.104", "3872.APC02.3V.52", "3872.APC02.3V.54", "3872.APC02.3V.96", "3872.APC02.4V.100",
+            "3872.APC02.4V.103", "3872.APC02.4V.113", "3872.APC02.4V.54", "3872.APC02.4V.85", "3872.APC02.4V.96",
+            "3872.APC02.4V.98", "3872.APC02.6V.106"
         ]
     },
     "Fernanda Altino": {
         "M": [
-            "3872.APC00.0M.103", "3872.APC00.0M.107", "3872.APC00.0M.109", "3872.APC00.0M.114",
-            "3872.APC00.0M.53", "3872.APC00.0M.55", "3872.APC00.0M.58"
+            "3872.APC00.0M.103", "3872.APC00.0M.107", "3872.APC00.0M.109", "3872.APC00.0M.114", "3872.APC00.0M.53",
+            "3872.APC00.0M.55", "3872.APC00.0M.58", "3872.APC00.0M.72", "3872.APC00.0M.75", "3872.APC00.0M.79",
+            "3872.APC00.0M.86", "3872.APC00.0M.90", "3872.APC00.0M.93", "3872.APC00.0M.95", "3872.APC00.0M.96",
+            "3872.APC00.0M.99"
         ],
         "V": [
-            "3872.APC00.0V.103", "3872.APC00.0V.107", "3872.APC00.0V.109", "3872.APC00.0V.113",
-            "3872.APC00.0V.53", "3872.APC00.0V.55", "3872.APC00.0V.58"
+            "3872.APC00.0V.103", "3872.APC00.0V.107", "3872.APC00.0V.109", "3872.APC00.0V.113", "3872.APC00.0V.53",
+            "3872.APC00.0V.55", "3872.APC00.0V.58", "3872.APC00.0V.72", "3872.APC00.0V.75", "3872.APC00.0V.79",
+            "3872.APC00.0V.86", "3872.APC00.0V.90", "3872.APC00.0V.93", "3872.APC00.0V.96", "3872.APC00.0V.99"
         ]
     },
     "Glaucineia Santos": {
         "M": [
-            "3872.APC00.0M.105", "3872.APC00.0M.106", "3872.APC00.0M.52", "3872.APC00.0M.57",
-            "3872.APC00.0M.73", "3872.APC00.0M.74", "3872.APC00.0M.76"
+            "3872.APC00.0M.105", "3872.APC00.0M.106", "3872.APC00.0M.52", "3872.APC00.0M.57", "3872.APC00.0M.73",
+            "3872.APC00.0M.74", "3872.APC00.0M.76", "3872.APC00.0M.78", "3872.APC00.0M.89", "3872.APC00.0M.91",
+            "3872.APC00.0M.97", "3872.APC00.0M.98"
         ],
         "V": [
-            "3872.APC00.0V.100", "3872.APC00.0V.104", "3872.APC00.0V.105", "3872.APC00.0V.116",
-            "3872.APC00.0V.52", "3872.APC00.0V.54", "3872.APC00.0V.78"
+            "3872.APC00.0V.100", "3872.APC00.0V.104", "3872.APC00.0V.105", "3872.APC00.0V.116", "3872.APC00.0V.52",
+            "3872.APC00.0V.54", "3872.APC00.0V.78", "3872.APC00.0V.89", "3872.APC00.0V.98"
         ]
     },
     "Kleyton Figueiredo": {
         "M": [
-            "3872.APC01.2M.101", "3872.APC01.2M.105", "3872.APC01.2M.107", "3872.APC01.2M.108",
-            "3872.APC01.2M.54", "3872.APC01.2M.57", "3872.APC01.2M.71"
+            "3872.APC01.2M.101", "3872.APC01.2M.105", "3872.APC01.2M.107", "3872.APC01.2M.108", "3872.APC01.2M.54",
+            "3872.APC01.2M.57", "3872.APC01.2M.71", "3872.APC01.2M.85", "3872.APC01.2M.91", "3872.APC01.2M.94",
+            "3872.APC01.2M.97", "3872.APC01.4M.110", "3872.APC01.4M.113", "3872.APC01.4M.55", "3872.APC01.4M.86",
+            "3872.APC01.5M.101", "3872.APC01.5M.85", "3872.APC01.5M.98", "671.APC01.2M.74", "671.APC01.4M.72"
         ],
         "V": [
-            "3872.APC01.2V.101", "3872.APC01.2V.108", "3872.APC01.2V.113", "3872.APC01.2V.54",
-            "3872.APC01.2V.71", "3872.APC01.2V.78", "3872.APC01.2V.85"
+            "3872.APC01.2V.101", "3872.APC01.2V.108", "3872.APC01.2V.113", "3872.APC01.2V.54", "3872.APC01.2V.71",
+            "3872.APC01.2V.78", "3872.APC01.2V.85", "3872.APC01.2V.89", "3872.APC01.2V.91", "3872.APC01.2V.97",
+            "3872.APC01.4V.108", "3872.APC01.4V.110", "3872.APC01.4V.113", "3872.APC01.4V.55", "3872.APC01.4V.86",
+            "3872.APC01.5V.101", "3872.APC01.5V.106", "3872.APC01.5V.85", "3872.APC01.5V.98"
         ]
     },
     "Luciana Medrado": {
         "M": [
-            "3872.APC01.2M.104", "3872.APC01.2M.52", "3872.APC01.2M.55", "3872.APC01.2M.90",
-            "3872.APC01.4M.104", "3872.APC01.4M.106", "3872.APC01.4M.109", "3872.APC01.4M.115"
+            "3872.APC01.2M.104", "3872.APC01.2M.52", "3872.APC01.2M.55", "3872.APC01.2M.90", "3872.APC01.4M.104",
+            "3872.APC01.4M.106", "3872.APC01.4M.109", "3872.APC01.4M.115", "3872.APC01.4M.54", "3872.APC01.4M.72",
+            "3872.APC01.4M.76", "3872.APC01.4M.85", "3872.APC01.4M.89", "3872.APC01.4M.92", "3872.APC01.4M.94",
+            "3872.APC01.4M.97", "671.APC01.4M.113"
         ],
         "V": [
-            "3872.APC01.2V.104", "3872.APC01.2V.106", "3872.APC01.2V.96", "3872.APC01.4V.101",
-            "3872.APC01.4V.103", "3872.APC01.4V.104", "3872.APC01.4V.109", "3872.APC01.4V.89",
-            "3872.APC01.4V.92", "671.APC01.4V.101"
+            "3872.APC01.2V.104", "3872.APC01.2V.106", "3872.APC01.2V.96", "3872.APC01.4V.101", "3872.APC01.4V.103",
+            "3872.APC01.4V.104", "3872.APC01.4V.109", "3872.APC01.4V.85", "3872.APC01.4V.89", "3872.APC01.4V.92",
+            "3872.APC01.4V.96", "671.APC01.4V.101"
         ]
     },
     "Marla Barbosa": {
         "M": [
-            "3872.APC00.0M.100", "3872.APC00.0M.108", "3872.APC00.0M.114", "3872.APC00.0M.115",
-            "3872.APC00.0M.116", "3872.APC00.0M.54", "3872.APC00.0M.85"
+            "3872.APC00.0M.100", "3872.APC00.0M.108", "3872.APC00.0M.114", "3872.APC00.0M.115", "3872.APC00.0M.116",
+            "3872.APC00.0M.54", "3872.APC00.0M.85", "3872.APC00.0M.94"
         ],
         "V": [
-            "3872.APC00.0V.106", "3872.APC00.0V.108", "3872.APC00.0V.57", "3872.APC00.0V.71",
-            "3872.APC00.0V.74", "3872.APC00.0V.76", "3872.APC00.0V.85"
+            "3872.APC00.0V.106", "3872.APC00.0V.108", "3872.APC00.0V.57", "3872.APC00.0V.71", "3872.APC00.0V.74",
+            "3872.APC00.0V.76", "3872.APC00.0V.85", "3872.APC00.0V.91", "3872.APC00.0V.94", "3872.APC00.0V.97"
         ]
     },
     "Nibson Lima": {
         "M": [
-            "4.0.APC02.2M.91", "4.0.APC02.3M.91", "4.0.APC02.4M.91", "4.APC02.2M.71",
-            "4.APC02.2M.85", "4.APC02.4M.100", "4.APC02.4M.103", "4.APC02.4M.71",
-            "671.APC02.4M.54"
+            "4.0.APC02.2M.91", "4.0.APC02.3M.91", "4.0.APC02.4M.91", "4.APC02.2M.71", "4.APC02.2M.85",
+            "4.APC02.4M.100", "4.APC02.4M.103", "4.APC02.4M.71", "671.APC.02.4M.100", "671.APC02.2M.54",
+            "671.APC02.2M.71", "671.APC02.2M.91", "671.APC02.2M.96", "671.APC02.2M.98", "671.APC02.3M.100",
+            "671.APC02.3M.78", "671.APC02.4M.104", "671.APC02.4M.106", "671.APC02.4M.108", "671.APC02.4M.54",
+            "671.APC02.4M.71", "671.APC02.4M.74", "671.APC02.4M.76", "671.APC02.4M.85", "671.APC02.4M.92",
+            "671.APC02.4M.97"
         ],
         "V": [
-            "4.0.APC02.2V.91", "4.0.APC02.3V.91", "4.0.APC02.4V.91", "4.APC02.2V.100",
-            "4.APC02.2V.85", "4.APC02.2V.94", "4.APC02.3V.78", "4.APC02.4V.100",
-            "4.APC02.4V.71", "671.APC02.2V.100", "671.APC02.4V.54", "671.APC02.4V.78"
+            "4.0.APC02.2V.91", "4.0.APC02.3V.91", "4.0.APC02.4V.91", "4.APC02.2V.100", "4.APC02.2V.85",
+            "4.APC02.2V.94", "4.APC02.3V.78", "4.APC02.4V.100", "4.APC02.4V.71", "4.APC02.4V.96",
+            "671.APC.02.4V.100", "671.APC02.2V.100", "671.APC02.2V.104", "671.APC02.2V.106", "671.APC02.2V.71",
+            "671.APC02.2V.78", "671.APC02.2V.91", "671.APC02.2V.96", "671.APC02.2V.98", "671.APC02.3V.106",
+            "671.APC02.3V.71", "671.APC02.3V.78", "671.APC02.3V.96", "671.APC02.4V.104", "671.APC02.4V.54",
+            "671.APC02.4V.71", "671.APC02.4V.78", "671.APC02.4V.85", "671.APC02.4V.97", "671.APC02.4V.98",
+            "671.APC02.5V.71"
         ]
     }
 }
@@ -523,6 +562,16 @@ def atualizar_banco_via_planilha_grade(arq_excel):
     st.session_state["banco_turmas_atual"] = novo_banco
     st.session_state["turmas_desativadas"] = novas_desativadas
     st.session_state["mapas_cache"] = construir_mapas_turmas()
+    if not st.session_state.get("base_faltas", pd.DataFrame()).empty:
+        st.session_state["base_faltas"] = indexar_base_faltas(st.session_state["base_faltas"])
+    if not st.session_state.get("base_moodle", pd.DataFrame()).empty:
+        st.session_state["base_moodle"] = indexar_base_moodle(st.session_state["base_moodle"])
+    if not st.session_state.get("base_rm", pd.DataFrame()).empty:
+        st.session_state["base_rm"] = indexar_base_rm(
+            st.session_state["base_rm"],
+            st.session_state.get("base_faltas"),
+            st.session_state.get("base_moodle")
+        )
     return True, f"{total_lidas} turmas carregadas ({len(novas_desativadas)} marcadas para desativação)."
 
 def sanitizar_celula(valor):
@@ -1014,7 +1063,7 @@ def _processar_unico_item(args):
     return None, False
 
 @st.cache_data(show_spinner=False, max_entries=10)
-def processar_lote_em_paralelo(itens_bytes_nomes, data_padrao_str):
+def _extrair_lote_em_paralelo_cacheado(itens_bytes_nomes, data_padrao_str):
     tarefas = [(b, nome, data_padrao_str) for b, nome in itens_bytes_nomes]
     dfs_validos = []
     com_faltas = 0
@@ -1028,32 +1077,54 @@ def processar_lote_em_paralelo(itens_bytes_nomes, data_padrao_str):
                 em_branco += 1
 
     df_final = pd.concat(dfs_validos, ignore_index=True) if dfs_validos else pd.DataFrame()
-    if not df_final.empty:
-        df_final = indexar_base_faltas(df_final)
     stats = {"total_arquivos": len(tarefas), "com_faltas": com_faltas, "em_branco": em_branco}
     return df_final, stats
 
+def processar_lote_em_paralelo(itens_bytes_nomes, data_padrao_str):
+    df_bruto, stats = _extrair_lote_em_paralelo_cacheado(itens_bytes_nomes, data_padrao_str)
+    df_final = indexar_base_faltas(df_bruto) if not df_bruto.empty else pd.DataFrame()
+    return df_final, stats
+
+LIMITE_MAX_ARQUIVOS_LOTE = 1500
+LIMITE_BYTES_TOTAIS_LOTE = 200 * 1024 * 1024
+
 def extrair_itens_upload(lista_arquivos):
     itens = []
-    def descompactar_zip(b_zip):
-        with zipfile.ZipFile(io.BytesIO(b_zip), "r") as z:
-            for info in z.infolist():
-                item = info.filename
-                if item.endswith("/") or "__MACOSX" in item or item.split("/")[-1].startswith("~$"):
-                    continue
-                if info.file_size > LIMITE_BYTES_ARQUIVO:
-                    continue
-                ilow = item.lower()
-                if ilow.endswith(".zip"):
-                    descompactar_zip(z.read(item))
-                elif ilow.endswith((".xls", ".xlsx", ".csv", ".tsv")):
-                    itens.append((z.read(item), item))
+    bytes_acumulados = [0]
+
+    def descompactar_zip(b_zip, nivel=0):
+        if nivel > 3 or len(itens) >= LIMITE_MAX_ARQUIVOS_LOTE:
+            return
+        try:
+            with zipfile.ZipFile(io.BytesIO(b_zip), "r") as z:
+                for info in z.infolist():
+                    if len(itens) >= LIMITE_MAX_ARQUIVOS_LOTE or bytes_acumulados[0] >= LIMITE_BYTES_TOTAIS_LOTE:
+                        break
+                    item = info.filename
+                    if item.endswith("/") or "__MACOSX" in item or item.split("/")[-1].startswith("~$"):
+                        continue
+                    if info.file_size > LIMITE_BYTES_ARQUIVO:
+                        continue
+                    ilow = item.lower()
+                    if ilow.endswith(".zip"):
+                        descompactar_zip(z.read(item), nivel + 1)
+                    elif ilow.endswith((".xls", ".xlsx", ".csv", ".tsv")):
+                        dados = z.read(item)
+                        bytes_acumulados[0] += len(dados)
+                        itens.append((dados, item))
+        except zipfile.BadZipFile:
+            pass
 
     for arq in lista_arquivos:
+        if len(itens) >= LIMITE_MAX_ARQUIVOS_LOTE or bytes_acumulados[0] >= LIMITE_BYTES_TOTAIS_LOTE:
+            break
         if arq.name.lower().endswith(".zip"):
-            descompactar_zip(arq.getvalue())
+            descompactar_zip(arq.getvalue(), 0)
         else:
-            itens.append((arq.getvalue(), arq.name))
+            dados = arq.getvalue()
+            if len(dados) <= LIMITE_BYTES_ARQUIVO:
+                bytes_acumulados[0] += len(dados)
+                itens.append((dados, arq.name))
     return itens
 
 def normalizar_data_calendario_br(val, ano_padrao=2026, mes_padrao=10):
